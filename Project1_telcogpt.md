@@ -54,7 +54,64 @@ az cognitiveservices account keys list \
     --resource-group Tredence-Batch2 \
   | jq -r .key1
 
+```
+### Launch VS code by using the command line
+```
+code
+```
+- Creaet a folder "telcogpt" on your desktop and open it in VS Code.
 
+- create a file named .env and store below environment variables in it.
+
+```
+AZURE_OPENAI_ENDPOINT="https://<myResourceName>.openai.azure.com/"
+AZURE_OPENAI_API_KEY="<primary‑key>"
+
+```
+
+
+```
+
+# ✧ Deploy the GPT‑4o mini model ✧
+az cognitiveservices account deployment create \
+    --name <myResourceName> \
+    --resource-group Tredence_Batch2 \
+    --deployment-name telcogpt \
+    --model-name gpt-4o-mini \
+    --model-version "2024-07-18" \
+    --model-format OpenAI \
+    --sku-capacity 1 \
+    --sku-name Standard
+```
+
+> **Considerations**
+>
+> * **Quota:** A Standard SKU provides 1 compute unit; API requests above the quota will be throttled.
+> * **Naming rules:** Resource names must be globally unique and 2–24 characters.
+> * **Azure CLI vs PowerShell:** The above commands run in Bash or PowerShell Core. Ensure `jq` is installed for JSON parsing.
+
+---
+
+## 4 Local Environment Setup
+
+```bash
+# 1 Navigate (example path)
+cd ~/Desktop/TelcoGPT
+
+# 2 Create a Python virtual‑env
+python -m venv gen-ai && source gen-ai/bin/activate
+
+# 3 Create folders & install deps
+mkdir -p app/static app/templates prompts
+pip install flask redis openai pytest
+
+# 4 Create placeholder source files
+ touch app/__init__.py app/routes.py app/cards.py \
+       app/prompt_builder.py app/validator.py
+
+# 5 Create the system prompt
+ touch prompts/system_prompt.txt          
+```
 ---
 
 © 2025 Blue Data Consulting – All rights reserved.
