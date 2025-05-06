@@ -112,6 +112,28 @@ pip install flask redis openai pytest
 # 5 Create the system prompt
  touch prompts/system_prompt.txt          
 ```
+
+---
+
+## 5 Running the App Locally
+
+```bash
+flask --app app run               # defaults to http://127.0.0.1:5000
+```
+
+Visit [http://127.0.0.1:5000/](http://127.0.0.1:5000/) to open the chat UI. Test with:
+
+```bash
+curl -s http://127.0.0.1:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"error code P0610 on eNB 410"}' | jq .
+```
+
+Expected JSON response contains five numbered bullets under the *Troubleshooting* card layout.
+
+---
+
+
 ---
 
 © 2025 Blue Data Consulting – All rights reserved.
