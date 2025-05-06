@@ -37,7 +37,7 @@ az login                       # interactive browser auth
 # ✧ Create the Cognitive account ✧
 az cognitiveservices account create \
     --name <myResourceName> \
-    --resource-group Tredence-Batch1 \
+    --resource-group Tredence-Batch2 \
     --location eastus \
     --kind OpenAI \
     --sku s0
@@ -45,19 +45,19 @@ az cognitiveservices account create \
 # ✧ Fetch the endpoint URL ✧
 az cognitiveservices account show \
     --name <myResourceName> \
-    --resource-group Tredence-Batch1 \
+    --resource-group Tredence-Batch2 \
   | jq -r .properties.endpoint
 
 # ✧ Fetch the primary key ✧
 az cognitiveservices account keys list \
     --name <myResourceName> \
-    --resource-group Tredence-Batch1 \
+    --resource-group Tredence-Batch2 \
   | jq -r .key1
 
 # ✧ Deploy the GPT‑4o mini model ✧
 az cognitiveservices account deployment create \
     --name <myResourceName> \
-    --resource-group Tredence_Batch1 \
+    --resource-group Tredence_Batch2 \
     --deployment-name telcogpt \
     --model-name gpt-4o-mini \
     --model-version "2024-07-18" \
