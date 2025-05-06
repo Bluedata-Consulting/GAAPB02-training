@@ -75,7 +75,7 @@ AZURE_OPENAI_API_KEY="<primary‑key>"
 # ✧ Deploy the GPT‑4o mini model ✧
 az cognitiveservices account deployment create \
     --name <myResourceName> \
-    --resource-group Tredence_Batch2 \
+    --resource-group Tredence-Batch2 \
     --deployment-name telcogpt \
     --model-name gpt-4o-mini \
     --model-version "2024-07-18" \
