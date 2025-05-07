@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 import os, json, redis 
 from .cards import detect_card_type
 from .prompt_builder import build_prompt
+from .validator import validate_reply
 
 # create blueprint of app
 bp = Blueprint("api",__name__)
@@ -20,8 +21,12 @@ def chat():
     response = client.chat.completions.create(messages=prompt, model="telcogpt",
                                               temperature=0.2,max_tokens=500)
     output = response.choices[0].message.content
+    if not validate_reply(output):
+        print("Validation TRiggered")
+        prompt.append({"role":"assistant",'content':'FORMAT Error, Re-answer in layout'})
+        output = client.chat.completions.create(model='telcogpt',messages=prompt).choices[0].message.content
     return jsonify({"answer":output})
 
 from flask import render_template
 @bp.route("/")
-def home(): return render_template("chat.html")
+def chatui():return render_template("chat.html")
