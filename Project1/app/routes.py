@@ -21,3 +21,7 @@ def chat():
                                               temperature=0.2,max_tokens=500)
     output = response.choices[0].message.content
     return jsonify({"answer":output})
+
+from flask import render_template
+@bp.route("/")
+def home(): return render_template("chat.html")
