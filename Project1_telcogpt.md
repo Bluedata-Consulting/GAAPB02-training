@@ -138,7 +138,7 @@ Expected JSON response contains five numbered bullets under the *Troubleshooting
 # ------------------------------------------------------------------
 # 0.  Variable block –  set ONCE for copy‑paste convenience
 # ------------------------------------------------------------------
-RG=Tredence-Batch1                  # resource‑group name
+RG=Tredence-Batch2                  # resource‑group name
 LOCATION=centralindia               # Azure region
 ACR=telcogptacr                     # must be globally unique
 IMG=telcogpt:v1                   # repository name inside ACR
