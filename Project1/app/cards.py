@@ -1,48 +1,48 @@
 """
-This is Query Router Implementation which routes the user query to specific response format.
-the response formats:
+This module has response cards format for telcoGPT.
+there are 3 cards defined, 
 1. Definition
-2. Troubleshooting
+2. Troubleshotting
 3. Design
-
 """
 
 import re
 
-# Basic regex routing
-_RGX_DEF = re.compile(r"(>i)\b(what is|define|explain)\b")
-_RGX_TRB = re.compile(r"(>i)\b(error|alarm|fail|degrade)\b")
+# basic routing usign regex
+_RGX_DEF = re.compile(f"(?i)\b(what is|define|explain)\b")
+_RGX_TRB = re.compile(f"(?i)\b(error|alarm|fail|downtime|outage|degrade)\b")
 
+CARD_DEF = """ <<CARD=Definition>>
+Return exactly five bullets:
 
-CARD_DEF = """<<CARD=Definition>>
-Return EXACTLY 5 bullet points.
-1. Concept : less than 30 words
-2. Technology Domain (RAN | Core | OSS/BSS \ Device)
-3. 3GPP Spec
-4. Key parameters
-5. Typical use cases 
+1. Concept <=30 words
+2. Technology domain (RAN | OSS/BSS | Device)
+3. 3GPP sepc ref
+4. Key parameters (<5)
+5. Typical Use cases
 """
 
-CARD_TRB= """<<CARD=Troubleshooting>>
-Return EXACTLY 5 bullet points.
-1. Root Cause
-2. Impact of Network
-3. KPIs Affected
+CARD_TRB = """ <<CARD=Troubleshooting>>
+Return exactly five bullets:
+
+1. Root Cause(s)
+2. Impact on Network
+3. KPIs affected
 4. Recommended Fix
 5. Fallback
 """
 
-CARD_DES= """<<CARD=Design>>
-Return EXACTLY 5 bullet points.
+CARD_DES = """ <<CARD=Design>>
+Return exactly five bullets:
+
 1. Objective
-2. Required Inputs
-3. FOrmula / Rule 
+2. Rquired Inputs
+3. Best Practice / Formula
 4. Example
-5. Best Practice
+5. Standards
 """
 
-
-def detect_card_type(query:str)->str:
-    if _RGX_DEF.search(query): return CARD_DEF
-    if _RGX_TRB.search(query): return CARD_TRB
+def dete_card_type(q:str)->str:
+    if _RGX_DEF.search(q): return CARD_DEF
+    if _RGX_TRB.search(q): return CARD_TRB
     return CARD_DES

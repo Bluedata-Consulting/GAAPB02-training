@@ -1,12 +1,8 @@
-"""
-this ptyhon module validates the reponse of LLM and provides boolean responses for checks
-"""
+import re, html
+from typing import Final
 
-import re
-
-# checking/ validating format of the response
-
-PATTERN = re.compile(r"^\d .*",re.M)
-
+_tag_PATTERN = re.compile(r"<[^>]+>", re.M)
+_bullet_PATTERN = re.compile("^(?:\\d+\\.|[-*])\\s", re.M)
 def validate_reply(text:str)->bool:
-    return len(PATTERN.findall(text)) >=5
+    plain = _tag_PATTERN.sub("",html.unescape(text))
+    return len(_bullet_PATTERN.findall(plain))>=5

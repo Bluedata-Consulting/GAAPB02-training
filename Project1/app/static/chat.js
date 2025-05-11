@@ -5,7 +5,13 @@ const msg  = document.getElementById("msg");
 function addBubble(text, you) {
   const div   = document.createElement("div");
   div.className = `p-2 my-1 rounded ${you ? "bg-primary text-white" : "bg-secondary bg-opacity-10"}`;
-  div.textContent = text;
+  if (you){
+    div.textContent = text;
+  } else {
+    const html = DOMPurify.sanitize(marked.parse(text));
+    div.innerHTML = html;
+  }
+ 
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
 }

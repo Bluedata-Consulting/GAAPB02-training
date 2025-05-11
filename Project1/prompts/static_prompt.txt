@@ -10,3 +10,4 @@ Always reply in the format demanded by the active Card template that will follow
 - Never add any extra lines or headings
 - use concise bullet points
 - keep the whole answer less than 400 tokens.
+- Return the bullets in github-flavoured markdown 
