@@ -154,12 +154,11 @@ AOAI_KEY="<primary-openai-key>"
 # 1.  Create Azure Container Registry and test the app locally
 # ------------------------------------------------------------------
 
-
 # create container registry
 az acr create -g $RG -n $ACR --sku Basic --admin-enabled true
 
 # 1. test the app with gunicorn locally (optional)
-gunicorn --b 127.0.0.1:8080 app:"create_app()" -e AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT -e AZURE_OPENAI_API_KEY=AZURE_OPENAI_API_KEY
+gunicorn -b 127.0.0.1:8080 app:"create_app()" -e AZURE_OPENAI_ENDPOINT=$AOAI_ENDPOINT -e AZURE_OPENAI_API_KEY=$AOAI_KEY
 
 # ------------------------------------------------------------------
 
@@ -174,7 +173,7 @@ sudo docker build -t $IMG .
 # check the list of images
 sudo docker images -a
 # run the image locally
-sudo docker run -d -p 8080:8080 --name -e AZURE_OPENAI_API_KEY=$AOAI_KEY -e AZURE_OPENAI_ENDPOINT=AOAI_ENDPOINT $IMG
+sudo docker run -d -p 8080:8080 -e AZURE_OPENAI_API_KEY=$AOAI_KEY -e AZURE_OPENAI_ENDPOINT=$AOAI_ENDPOINT $IMG
 
 # check the list of running containers
 sudo docker ps -a
