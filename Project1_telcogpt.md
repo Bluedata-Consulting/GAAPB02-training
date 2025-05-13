@@ -28,6 +28,10 @@ TelcoGPT delivers instant, domain‑accurate answers for network engineers and s
 
 ## 3 Provision Azure OpenAI Resources
 
+<img src="figures/project11.png" alt="Project 1" width="900"/>
+<img src="figures/project12.png" alt="Project 1" width="1200"/>
+
+
 Execute the following **once**; substitute your own names where indicated:
 
 ```bash
