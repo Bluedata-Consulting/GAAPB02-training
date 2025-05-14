@@ -10,8 +10,8 @@ A two‑tier web application that
 
 ---
 
-<img src="./figures/Project21.png" alt="Project 2" width="900"/>
-<img src="./figures/Project22.png" alt="Project 2" width="900"/>
+<img src=".\figures\Project21.png" alt="Project 2" width="900"/>
+<img src=".\figures\Project22.png" alt="Project 2" width="900"/>
 
 
 \## 📂 Project layout
