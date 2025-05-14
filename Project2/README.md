@@ -75,9 +75,9 @@ export IMG=img$NAME
 export AOAI=${NAME}aoai         # Azure OpenAI resource name
 
 # (OPTIONAL) if you already have the keys:
-export AOAIKEY=b249ff7055e349c19b9665ff4df191ec   # leave empty to auto‑retrieve later
-export LFPUBLIC=pk-lf-172affbb-515f-425c-81b4-ad99d3586f71
-export LFSECRET=sk-lf-8f5062a3-4c73-46b8-81a7-a784c561916e
+export AOAIKEY=********************   # leave empty to auto‑retrieve later
+export LFPUBLIC=pk-lf-******************
+export LFSECRET=sk-lf-****************************
 ```
 
 
