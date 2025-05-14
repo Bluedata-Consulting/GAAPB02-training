@@ -69,6 +69,187 @@ IMG=img$NAME
 ```
 
 
+Below is the **refreshed, single‑script cheat‑sheet**—now using **Azure OpenAI (AOAI)** instead of Azure AI Foundry.
+Copy‑paste each block into an Ubuntu bash session; every CLI call is parameterised by the variables you asked for.
+
+---
+
+\## 0 Set shell variables (run once per terminal)
+
+```bash
+# personalise
+export NAME=anshu
+export RG=Tredence-Batch2
+export LOC=eastus2              # choose any supported region
+
+export VAULT=vault$NAME
+export SP=sp$NAME
+export ACR=codeacr$NAME
+export ACI=aci$NAME
+export IMG=img$NAME
+
+export AOAI=${NAME}aoai         # Azure OpenAI resource name
+
+# (OPTIONAL) if you already have the keys:
+export AOAIKEY=<your‑azure‑openai‑key>   # leave empty to auto‑retrieve later
+export LFPUBLIC=<your‑langfuse‑public‑key>
+export LFSECRET=<your‑langfuse‑secret‑key>
+```
+
+---
+
+\## 1 Resource group
+
+```bash
+az group create -n $RG -l $LOC
+```
+
+---
+
+\## 2 Key Vault + secrets
+
+```bash
+az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
+
+# place Langfuse keys now so later code can start up immediately
+az keyvault secret set -n LANGFUSE-PUBLIC-KEY --vault-name $VAULT --value "$LFPUBLIC"
+az keyvault secret set -n LANGFUSE-SECRET-KEY --vault-name $VAULT --value "$LFSECRET"
+```
+
+---
+
+\## 3 Service principal (Key Vault → Secrets User)
+
+```bash
+az ad sp create-for-rbac -n $SP \
+  --role "Key Vault Secrets User" \
+  --scopes $(az keyvault show -n $VAULT --query id -o tsv) \
+  --sdk-auth > sp.json
+```
+
+---
+
+\## 4 Container Registry
+
+```bash
+az acr create -g $RG -n $ACR --sku Basic
+az acr login -n $ACR
+```
+
+---
+
+\## 5 Docker build & push
+
+```bash
+# BACKEND
+docker build -f backend.Dockerfile \
+  -t $IMG-backend:latest ./code-optimizer/backend
+docker tag $IMG-backend:latest $ACR.azurecr.io/$IMG-backend:latest
+docker push $ACR.azurecr.io/$IMG-backend:latest
+
+# FRONTEND
+docker build -f frontend.Dockerfile \
+  -t $IMG-frontend:latest ./code-optimizer/frontend
+docker tag $IMG-frontend:latest $ACR.azurecr.io/$IMG-frontend:latest
+docker push $ACR.azurecr.io/$IMG-frontend:latest
+```
+
+---
+
+\## 6 Container Instances
+
+```bash
+# BACKEND ACI
+az container create -g $RG -n ${ACI}-backend \
+  --image $ACR.azurecr.io/$IMG-backend:latest \
+  --registry-login-server $ACR.azurecr.io \
+  --cpu 1 --memory 2 \
+  --environment-variables \
+      BDC_VAULT_NAME=$VAULT \
+      $(jq -r '"AZURE_CLIENT_ID="+.clientId'       sp.json) \
+      $(jq -r '"AZURE_CLIENT_SECRET="+.clientSecret' sp.json) \
+      $(jq -r '"AZURE_TENANT_ID="+.tenantId'       sp.json) \
+      SESSION_SECRET=$(openssl rand -hex 16) \
+  --dns-name-label ${ACI}-backend-$RANDOM \
+  --ports 8000
+
+BACKEND_FQDN=$(az container show -g $RG -n ${ACI}-backend \
+               --query ipAddress.fqdn -o tsv)
+
+# FRONTEND ACI
+az container create -g $RG -n ${ACI}-frontend \
+  --image $ACR.azurecr.io/$IMG-frontend:latest \
+  --registry-login-server $ACR.azurecr.io \
+  --cpu 1 --memory 1 \
+  --environment-variables VITE_API_URL=http://$BACKEND_FQDN:8000 \
+  --dns-name-label ${ACI}-frontend-$RANDOM \
+  --ports 80
+```
+
+Retrieve the public URL:
+
+```bash
+az container show -g $RG -n ${ACI}-frontend --query ipAddress.fqdn -o tsv
+```
+
+---
+
+\## 7 Azure OpenAI resource + model deployment
+
+\### 7.1 Create the AOAI account
+
+```bash
+az cognitiveservices account create \
+  -g $RG -n $AOAI -l $LOC \
+  --kind OpenAI --sku S0 \
+  --yes
+```
+
+\### 7.2 Get / store the API key
+
+```bash
+if [ -z "$AOAIKEY" ]; then
+  AOAIKEY=$(az cognitiveservices account keys list -g $RG -n $AOAI --query key1 -o tsv)
+fi
+
+az keyvault secret set --vault-name $VAULT -n "AZURE-OPENAI-API-KEY" --value "$AOAIKEY"
+```
+
+\### 7.3 Deploy a model (e.g., GPT‑4o with deployment name `gpt4o`)
+
+> **Important:** You must have been granted OpenAI model access in the Azure portal first.
+
+```bash
+az cognitiveservices account deployment create \
+  -g $RG -n $AOAI \
+  --deployment-name gpt4o \
+  --model-name gpt-4o \
+  --model-version "2024-05-13" \
+  --model-format OpenAI \
+  --scale-settings scale-type="Standard"
+```
+
+After the deployment status shows **succeeded**, the backend can hit:
+
+```
+https://$AOAI.openai.azure.com/openai/deployments/gpt4o/chat/completions?api-version=2024-02-15-preview
+```
+
+> The backend code already targets that endpoint (`azure_endpoint="https://user1-mai722r2-eastus2.openai.azure.com/"`).
+> Replace that string in `guardrails.py` / `optimizers.py` with your newly created endpoint URL (`https://$AOAI.openai.azure.com/`).
+
+---
+
+\## Done 🎉
+
+You now have:
+
+* Key Vault `$VAULT` holding **AOAI key + Langfuse keys**
+* Service principal `$SP` with “Secrets User” rights
+* Docker images in ACR `$ACR`
+* Frontend & backend running as **Azure Container Instances** under the `$ACI-*` names
+* **Azure OpenAI** resource `$AOAI` with a GPT‑4o deployment named `gpt4o` ready for low‑latency chat completions.
+
 
 \### 2 Create **Key Vault** + secrets
 
