@@ -48,6 +48,6 @@ def get_secret(name: str) -> str:
 
 def prime_langfuse_env() -> None:
     """Set LANGFUSE_* only once."""
-    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", get_secret("LANGFUSE_PUBLIC_KEY"))
-    os.environ.setdefault("LANGFUSE_SECRET_KEY", get_secret("LANGFUSE_SECRET_KEY"))
+    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", get_secret("LANGFUSE-PUBLIC-KEY"))
+    os.environ.setdefault("LANGFUSE_SECRET_KEY", get_secret("LANGFUSE-SECRET-KEY"))
 

@@ -41,7 +41,7 @@ mkdir -p code-optimizer/backend code-optimizer/frontend/src
 
 # 1) back‑end tree  ───────────────────────────────────────────────
 mkdir -p code-optimizer/backend && \
-touch code-optimizer/backend/{main.py,prompt_setup.py,secrets.py,guardrails.py,optimizers.py,utils.py,requirements.txt,backend.Dockerfile}
+touch code-optimizer/backend/{main.py,prompt_setup.py,kvsecrets.py,guardrails.py,optimizers.py,utils.py,requirements.txt,backend.Dockerfile}
 
 # 2) front‑end tree  ──────────────────────────────────────────────
 mkdir -p code-optimizer/frontend/src && \
@@ -53,7 +53,7 @@ touch code-optimizer/frontend/{package.json,frontend.Dockerfile} code-optimizer/
 
 \## 🚀 Resource provisioning (once)
 
-\### 1 Login to Azure & create variables
+\### 0 Login to Azure & create variables
 
 ```bash
 az login
@@ -75,16 +75,19 @@ export IMG=img$NAME
 export AOAI=${NAME}aoai         # Azure OpenAI resource name
 
 # (OPTIONAL) if you already have the keys:
-export AOAIKEY=********************   # leave empty to auto‑retrieve later
-export LFPUBLIC=pk-lf-******************
-export LFSECRET=sk-lf-****************************
+export AOAIKEY=b249ff7055e349c19b9665ff4df191ec   # leave empty to auto‑retrieve later
+export LFPUBLIC=pk-lf-172affbb-515f-425c-81b4-ad99d3586f71
+export LFSECRET=sk-lf-8f5062a3-4c73-46b8-81a7-a784c561916e
+export AZURE_DEPLOYMENT=telcogpt2
+export LANGFUSE_HOST=https://cloud.langfuse.com
+export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
 ```
 
 
 
 ---
 
-\## 2 Key Vault + secrets
+\## 1 Key Vault + secrets
 
 ```bash
 az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
@@ -92,11 +95,13 @@ az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
 # place Langfuse keys now so later code can start up immediately
 az keyvault secret set -n LANGFUSE-PUBLIC-KEY --vault-name $VAULT --value $LFPUBLIC
 az keyvault secret set -n LANGFUSE-SECRET-KEY --vault-name $VAULT --value $LFSECRET
+az keyvault secret set -n AZURE-OPENAI-API-KEY --vault-name $VAULT --value $AOAIKEY
+
 ```
 
 ---
 
-\## 3 Service principal (Key Vault → Secrets User)
+\## 2 Service principal (Key Vault → Secrets User)
 
 ```bash
 az ad sp create-for-rbac -n $SP \
@@ -118,6 +123,31 @@ The JSON looks like:
 
 Copy the three fields—we’ll map them to environment variables.
 
+
+---
+\## 3 Test the applicaiton locally
+
+```bash
+#export following env variables
+export VAULT_NAME=$VAULT
+export AZURE_CLIENT_SECRET=Bbw8Q~rOIZ4UlfPzXaOsiYa1Z1GY1kYSm-niodq5
+export AZURE_CLIENT_ID=cc8f42c4-5f99-417b-b833-3bc39649cf4a
+export AZURE_TENANT_ID=0d2a6053-e113-42e7-9169-f5cbed7a941f
+export SESSION_SECRET=$(openssl rand -hex 16)
+export AZURE_DEPLOYMENT=telcogpt2
+export LANGFUSE_HOST=https://cloud.langfuse.com
+export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
+
+  uvicorn main:app --reload --port 8000
+
+az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
+
+# place Langfuse keys now so later code can start up immediately
+az keyvault secret set -n LANGFUSE-PUBLIC-KEY --vault-name $VAULT --value $LFPUBLIC
+az keyvault secret set -n LANGFUSE-SECRET-KEY --vault-name $VAULT --value $LFSECRET
+az keyvault secret set -n AZURE-OPENAI-API-KEY --vault-name $VAULT --value $AOAIKEY
+
+```
 
 ---
 

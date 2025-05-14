@@ -4,7 +4,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 from utils import _llm, _prompt
-from secrets import prime_langfuse_env
+from kvsecrets import prime_langfuse_env
 
 prime_langfuse_env()
 

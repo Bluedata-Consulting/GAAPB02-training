@@ -5,14 +5,21 @@ Executed once at app start‑up to (idempotently) register prompts.
 import logging
 from langfuse import Langfuse
 import os
+from kvsecrets import prime_langfuse_env
+prime_langfuse_env()
 _LOGGER = logging.getLogger(__name__)
-_langfuse = Langfuse()
+_langfuse = Langfuse(secret_key=os.getenv('LANGFUSE_SECRET_KEY'),
+                     public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+                     host=os.getenv('LANGFUSE_HOST'))
 
 
 def _ensure_prompt(name: str, prompt: str, model=os.getenv('AZURE_DEPLOYMENT'), temperature=0.7):
-    if _langfuse.get_prompt(name, raise_if_not_found=False):
+    try: 
+        _langfuse.get_prompt(name)
         _LOGGER.debug("Prompt %s already exists", name)
         return
+    except Exception:
+        pass
     _langfuse.create_prompt(
         name=name,
         prompt=prompt,

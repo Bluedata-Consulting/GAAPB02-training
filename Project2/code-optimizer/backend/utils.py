@@ -10,7 +10,7 @@ from typing import List
 from langchain_openai import AzureChatOpenAI
 from langfuse import Langfuse
 from functools import lru_cache
-from secrets import get_secret
+from kvsecrets import get_secret
 
 _LOGGER = logging.getLogger(__name__)
 _langfuse = Langfuse()
@@ -22,7 +22,7 @@ def _prompt(name: str):
 
 def _llm(model: str, temperature: float):
     return AzureChatOpenAI(
-        api_key=get_secret("AZURE_OPENAI_API_KEY"),
+        api_key=get_secret("AZURE-OPENAI-API-KEY"),
         api_version="2024-12-01-preview",
         model=model,
         temperature=temperature,
