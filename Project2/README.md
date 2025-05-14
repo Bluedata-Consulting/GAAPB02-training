@@ -1,5 +1,3 @@
-
-
 # Code Optimizer Assistant — FastAPI + React
 
 A two‑tier web application that
@@ -36,6 +34,7 @@ code-optimizer/
 ```bash
 mkdir -p code-optimizer/backend code-optimizer/frontend/src
 
+
 # 1) back‑end tree  ───────────────────────────────────────────────
 mkdir -p code-optimizer/backend && \
 touch code-optimizer/backend/{main.py,prompt_setup.py,secrets.py,guardrails.py,optimizers.py,utils.py,requirements.txt,backend.Dockerfile}
@@ -50,30 +49,45 @@ touch code-optimizer/frontend/{package.json,frontend.Dockerfile} code-optimizer/
 
 \## 🚀 Resource provisioning (once)
 
-\### 1 Create a resource group
+\### 1 Login to Azure & create variables
 
 ```bash
-az group create -n code-opt-rg -l eastus2
+az login
 ```
+
+```bash
+NAME=anshu
+RG=Tredence-Batch2
+VAULT=vault$NAME
+AOAIKEY=
+LFPUBLIC=
+LFSECRET=
+SP=sp$NAME
+ACR=codeacr$NAME
+ACI=aci$NAME
+IMG=img$NAME
+```
+
+
 
 \### 2 Create **Key Vault** + secrets
 
 ```bash
 # vault
-az keyvault create -g code-opt-rg -n BDCvault --enable-rbac-authorization true
+az keyvault create -g $RG$ -n $VAULT --enable-rbac-authorization true
 
 # add the three secrets the app needs
-az keyvault secret set -n "AZURE-OPENAI-API-KEY"     --vault-name BDCvault --value "<your-azure-openai-key>"
-az keyvault secret set -n "LANGFUSE-PUBLIC-KEY"      --vault-name BDCvault --value "<langfuse-public>"
-az keyvault secret set -n "LANGFUSE-SECRET-KEY"      --vault-name BDCvault --value "<langfuse-secret>"
+az keyvault secret set -n "AZURE-OPENAI-API-KEY"     --vault-name $VAULT --value "<your-azure-openai-key>"
+az keyvault secret set -n "LANGFUSE-PUBLIC-KEY"      --vault-name $VAULT --value "<langfuse-public>"
+az keyvault secret set -n "LANGFUSE-SECRET-KEY"      --vault-name $VAULT --value "<langfuse-secret>"
 ```
 
 \### 3 Create a **service principal** for Key Vault access
 
 ```bash
-az ad sp create-for-rbac -n code-opt-sp \
+az ad sp create-for-rbac -n $SP \
   --role "Key Vault Secrets User" \
-  --scopes $(az keyvault show -n BDCvault --query id -o tsv) \
+  --scopes $(az keyvault show -n $VAULT --query id -o tsv) \
   --sdk-auth > sp.json
 ```
 
