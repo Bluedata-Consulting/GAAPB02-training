@@ -35,6 +35,15 @@ code-optimizer/
 
 ```bash
 mkdir -p code-optimizer/backend code-optimizer/frontend/src
+
+# 1) back‑end tree  ───────────────────────────────────────────────
+mkdir -p code-optimizer/backend && \
+touch code-optimizer/backend/{main.py,prompt_setup.py,secrets.py,guardrails.py,optimizers.py,utils.py,requirements.txt,backend.Dockerfile}
+
+# 2) front‑end tree  ──────────────────────────────────────────────
+mkdir -p code-optimizer/frontend/src && \
+touch code-optimizer/frontend/{package.json,frontend.Dockerfile} code-optimizer/frontend/src/{api.js,App.jsx}
+
 ```
 
 ---
