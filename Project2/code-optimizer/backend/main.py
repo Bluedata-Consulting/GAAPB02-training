@@ -11,7 +11,6 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from pydantic import BaseModel
 
 from prompt_setup import register_prompts_once
-from secrets import get_secret
 from utils import clone_repo, list_files
 from optimizers import optimise_with_guardrails
 

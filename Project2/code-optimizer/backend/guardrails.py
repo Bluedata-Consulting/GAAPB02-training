@@ -1,38 +1,12 @@
 from __future__ import annotations
-
-import logging
-from functools import lru_cache
 from typing import List
-
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, Field
-from langfuse import Langfuse
-from langfuse.callback import CallbackHandler
-
-from secrets import get_secret, prime_langfuse_env
+from utils import _llm, _prompt
+from secrets import prime_langfuse_env
 
 prime_langfuse_env()
-_LOGGER = logging.getLogger(__name__)
-_langfuse = Langfuse()
-
-
-# ───────────────────── Prompt caching helpers ──────────────────────
-@lru_cache
-def _prompt(name: str):
-    return _langfuse.get_prompt(name)
-
-
-def _llm(model: str, temperature: float):
-    return AzureChatOpenAI(
-        azure_endpoint="https://user1-mai722r2-eastus2.openai.azure.com/",
-        api_key=get_secret("AZURE-OPENAI-API-KEY"),
-        api_version="2024-12-01-preview",
-        model=model,
-        temperature=temperature,
-    )
-
 
 # ───────────────────────── Input guardrail ──────────────────────────
 class _InputGuardrailResp(BaseModel):
@@ -47,7 +21,7 @@ def input_guardrail(code: str) -> (bool, str):
     chain = (
         PromptTemplate(
             template=p.prompt,
-            input_variables=["code"],
+            input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
         )
         | _llm(p.config["model"], float(p.config["temperature"]))
@@ -70,7 +44,7 @@ def output_guardrail(optimized_code: str, human_feedback_list: List[str]) -> boo
     chain = (
         PromptTemplate(
             template=p.prompt,
-            input_variables=["optimized_code", "human_feedback_list"],
+            input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
         )
         | _llm(p.config["model"], float(p.config["temperature"]))

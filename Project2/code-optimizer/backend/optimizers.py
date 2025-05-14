@@ -7,18 +7,15 @@ Retries the inner optimise+output_guardrail up to MAX_RETRIES.
 
 import logging
 from typing import List
-
+from utils import _llm, _prompt
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, Field
 from langfuse.callback import CallbackHandler
-from langfuse import Langfuse
+import os
 
-from guardrails import input_guardrail, output_guardrail, _prompt, _llm
-
+from guardrails import input_guardrail, output_guardrail
 _LOGGER = logging.getLogger(__name__)
-_langfuse = Langfuse()
 MAX_RETRIES = 3
 
 
@@ -34,7 +31,7 @@ def _optimize_once(code: str) -> str:
     chain = (
         PromptTemplate(
             template=p.prompt,
-            input_variables=["user_input"],
+            input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
         )
         | _llm(p.config["model"], float(p.config["temperature"]))
@@ -42,7 +39,7 @@ def _optimize_once(code: str) -> str:
     )
 
     return chain.invoke(
-        {"user_input": code}, config={"callbacks": [CallbackHandler(host="https://cloud.langfuse.com")]}
+        {"user_input": code}, config={"callbacks": [CallbackHandler(host=os.getenv("LANGFUSE_HOST"))]}
     ).code
 
 
