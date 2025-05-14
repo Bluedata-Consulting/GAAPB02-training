@@ -1,26 +1,46 @@
 """
-Executed only at once at the startup of the application to register the prompt to langfuse
+Executed once at app start‑up to (idempotently) register prompts.
 """
 
 import logging
 from langfuse import Langfuse
-lf = Langfuse()
 
-import os
-model = os.environ['AZURE_DEPLOYMENT']
+_LOGGER = logging.getLogger(__name__)
+_langfuse = Langfuse()
 
-def _ensure_prompt(name: str, prompt:str, model:str, temperature=0.2):
-    if lf.get_prompt(name, raise_if_not_true=False):
-        return False
-    lf.create_prompt(name=name,prompt=prompt, config={"model":model,"temperature":temperature},
-                     labels=['production'])
-    
 
-def register_prompt_once():
-    input_gr_prompt = """ """
-    output_gr_prompt = """ """
-    optimization_prompt = """"""
+def _ensure_prompt(name: str, prompt: str, model="gpt-4o", temperature=0.7):
+    if _langfuse.get_prompt(name, raise_if_not_found=False):
+        _LOGGER.debug("Prompt %s already exists", name)
+        return
+    _langfuse.create_prompt(
+        name=name,
+        prompt=prompt,
+        config={"model": model, "temperature": temperature},
+        labels=["production"],
+    )
+    _LOGGER.info("Prompt %s created", name)
 
-    _ensure_prompt(name="input-gaurdrail",prompt=input_gr_prompt)
-    _ensure_prompt(name="output-gaurdrail",prompt=output_gr_prompt)
-    _ensure_prompt(name="optimization-prompt",prompt=optimization_prompt)
+
+def register_prompts_once():
+    _ensure_prompt(
+        "input-guardrail",
+        """
+        You are a guardrail…
+        (same prompt text as before)
+        """,
+    )
+    _ensure_prompt(
+        "output-guardrail",
+        """
+        You are a code quality guardrail…
+        (same prompt text as before)
+        """,
+    )
+    _ensure_prompt(
+        "optimize-code",
+        """
+        You are an expert code optimizer…
+        (same prompt text as before)
+        """,
+    )
