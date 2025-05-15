@@ -215,6 +215,7 @@ Open **another terminal** (leave the backend running):
 
 ```bash
 cd code-optimizer/frontend
+sudo apt install npm  # enter the user VM password (Cloud.....)
 npm install          # first time only
 npm run dev          # Vite dev server → http://localhost:5173
 ```

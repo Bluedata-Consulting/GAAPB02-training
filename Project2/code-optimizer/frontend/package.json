@@ -5,9 +5,9 @@
   "type": "module",
 
   "scripts": {
-    "dev": "vite",                   // hot-reload on http://localhost:5173
-    "build": "vite build",           // production bundle → dist/
-    "preview": "vite preview",       // test the dist/ bundle locally
+    "dev": "vite",                   
+    "build": "vite build",           
+    "preview": "vite preview",       
     "lint": "eslint . --ext jsx,js,ts,tsx",
     "format": "prettier --write ."
   },
