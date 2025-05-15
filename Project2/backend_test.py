@@ -42,8 +42,8 @@ from pathlib import Path
 import requests
 
 TARGETS = {
-    "local": "http://localhost:8000",
-    "docker": "http://localhost:8000",
+    "local": "http://127.0.0.1:8000",
+    "docker": "http://127.0.0.1:8000",
     "aci": None,  # filled from --aci-fqdn
 }
 
@@ -57,13 +57,16 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", choices=TARGETS, default="local",
                     help="Which backend location to hit")
+    ap.add_argument("--base-url", default="http://127.0.0.1:8000",
+                    help="Override full base URL, e.g. http://127.0.0.1:8000")
     ap.add_argument("--aci-fqdn", help="Required if --target aci")
     ap.add_argument("--repo", required=True,
                     help="Public Git repo URL to clone in the test")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    base_url = TARGETS[args.target]
+    base_url = args.base_url
+    print(base_url)
     if args.target == "aci":
         if not args.aci_fqdn:
             die("--aci-fqdn required with --target aci")
@@ -90,25 +93,39 @@ def main() -> None:
         return r.text
 
     # 1) session
-    post("/session")
+    #post("/session")
+    session_resp = sess.post(f"{base_url}/session",timeout=120)
+    session_resp.raise_for_status()
+    token = session_resp.cookies.get("session")
+    print(token)
+    print(session_resp.headers.get("set-cookie"))
+    sess.cookies.set("session",session_resp.cookies.get("session"),path='/')
+    print(sess.cookies.get_dict())
+
+    
     print("✔ /session OK")
 
     # 2) clone
-    clone_resp = post("/clone", json={"repo_url": args.repo})
+    print(args.repo)
+    clone_resp = sess.post(f"{base_url}/clone", json={"repo_url": args.repo})
+    print(clone_resp,clone_resp.content)
+    clone_resp = clone_resp.content.decode()
+    clone_resp = json.loads(clone_resp)
+    print(clone_resp)
     files = clone_resp["files"]
     if not files:
         die("Repository returned an empty file list")
     first_file = files[0]
-    print(f"✔ /clone OK – {len(files)} files, using '{first_file}'")
+    print(f"✔ /clone OK {len(files)} files, using '{first_file}'")
 
     # 3) file
     code = get("/file", params={"relative_path": first_file})
-    print(f"✔ /file OK – {len(code)} chars")
+    print(f"✔ /file OK {len(code)} chars")
 
     # 4) optimise
     optim_resp = post("/optimise", json={"code": code, "feedback": "add docstring"})
     snippet = (optim_resp["optimised"] or "")[:300]
-    print("✔ /optimise OK – first 300 chars:")
+    print("✔ /optimise OK first 300 chars:")
     print("-" * 60)
     print(snippet)
     print("-" * 60)

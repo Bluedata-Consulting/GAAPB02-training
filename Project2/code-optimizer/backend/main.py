@@ -50,7 +50,8 @@ def get_session_token(request: Request) -> str:
 
 def set_session_cookie(resp: Response) -> str:
     token = _SIGNER.dumps("ok")
-    resp.set_cookie("session", token, max_age=_SESSION_LIFETIME.total_seconds(), httponly=True, samesite="lax")
+    resp.set_cookie("session", token, max_age=_SESSION_LIFETIME.total_seconds(), 
+                    httponly=True, samesite="lax",path="/")
     return token
 
 
