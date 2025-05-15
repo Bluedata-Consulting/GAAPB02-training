@@ -1,0 +1,27 @@
+{
+  "name": "code-optimizer-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+
+  "scripts": {
+    "dev": "vite",                   // hot-reload on http://localhost:5173
+    "build": "vite build",           // production bundle → dist/
+    "preview": "vite preview",       // test the dist/ bundle locally
+    "lint": "eslint . --ext jsx,js,ts,tsx",
+    "format": "prettier --write ."
+  },
+
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.2.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.1",
+    "prettier": "^3.2.5"
+  }
+}
