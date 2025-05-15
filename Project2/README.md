@@ -140,12 +140,136 @@ export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
 
   uvicorn main:app --reload --port 8000
 
-az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
+Below is the quickest repeatable way to spin up **both tiers on your laptop** (Ubuntu 20 / 22; similar on macOS).
 
-# place Langfuse keys now so later code can start up immediately
-az keyvault secret set -n LANGFUSE-PUBLIC-KEY --vault-name $VAULT --value $LFPUBLIC
-az keyvault secret set -n LANGFUSE-SECRET-KEY --vault-name $VAULT --value $LFSECRET
-az keyvault secret set -n AZURE-OPENAI-API-KEY --vault-name $VAULT --value $AOAIKEY
+```
+code-optimizer/
+│
+├── backend/               # FastAPI sources + requirements.txt
+└── frontend/              # React-Vite sources + package.json
+```
+
+---
+
+## 1 Prereqs
+
+| Layer        | Tool version (min) | Install (Ubuntu)                                                                             |                                               |
+| ------------ | ------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| **Backend**  | Python 3.10+       | `sudo apt install python3.10 python3.10-venv`                                                |                                               |
+| **Frontend** | Node 18+ & npm     | \`curl -fsSL [https://deb.nodesource.com/setup\_18.x](https://deb.nodesource.com/setup_18.x) | sudo -E bash -`<br>`sudo apt install nodejs\` |
+
+---
+
+## 2 Environment variables
+
+Create a **`.env`** file in the project root (never commit it):
+
+```bash
+# Key Vault lookup for creds
+BDC_VAULT_NAME=BDCvault
+
+# Service-principal creds (from sp.json)
+AZURE_CLIENT_ID=xxxxxxxx-...
+AZURE_CLIENT_SECRET=xxxxxxxx-...
+AZURE_TENANT_ID=xxxxxxxx-...
+
+# Cookie signing secret
+SESSION_SECRET=$(openssl rand -hex 16)
+
+# Local React app points to the backend
+VITE_API_URL=http://localhost:8000
+```
+
+Load it in every new shell:
+
+```bash
+export $(grep -v '^#' .env | xargs)
+```
+
+*(a helper like `direnv` or `dotenv-linter` can automate this)*
+
+---
+
+## 3 Backend: FastAPI + Uvicorn
+
+```bash
+cd code-optimizer/backend
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# run
+uvicorn main:app --reload --port 8000
+```
+
+* `--reload` auto-restarts on file changes.
+* The startup log should show “Application startup complete.” and no Key Vault errors.
+
+---
+
+## 4 Frontend: React-Vite dev server
+
+Open **another terminal** (leave the backend running):
+
+```bash
+cd code-optimizer/frontend
+npm install          # first time only
+npm run dev          # Vite dev server → http://localhost:5173
+```
+
+Vite prints something like:
+
+```
+> Local: http://localhost:5173/
+```
+
+---
+
+## 5 Open the app
+
+Navigate to **[http://localhost:5173](http://localhost:5173)** in a browser:
+
+1. Paste a public GitHub repo URL → **Clone**
+2. Choose a file → **Load**
+3. Click **Optimise** to hit the backend at `http://localhost:8000`.
+
+⚠️  If you get CORS errors in the browser console, verify:
+
+* Backend is reachable at the URL in `VITE_API_URL`.
+* React dev server and backend run on different ports (5173 vs 8000).
+
+---
+
+## 6 Optional: run both in one command
+
+If you like a single process, install the **`task`** runner or **`concurrently`**:
+
+```bash
+# root/package.json (add dev script)
+{
+  "scripts": {
+    "dev": "concurrently \"npm --prefix frontend run dev\" \"bash -c 'cd backend && source .venv/bin/activate && uvicorn main:app --reload --port 8000'\""
+  },
+  "devDependencies": { "concurrently": "^8.2.0" }
+}
+
+npm install --save-dev concurrently
+npm run dev      # starts both servers together
+```
+
+---
+
+### Quick sanity checks
+
+| URL                                             | Expect                       |
+| ----------------------------------------------- | ---------------------------- |
+| `http://localhost:8000/docs`                    | FastAPI Swagger UI           |
+| `curl -X POST http://localhost:8000/session`    | 200 with `Set-Cookie` header |
+| `npm run test` (if you saved `backend_test.py`) | All ✅                        |
+
+You now have the **backend and frontend running locally** with hot-reload; edit any Python or React file and the browser refreshes automatically.
 
 ```
 
