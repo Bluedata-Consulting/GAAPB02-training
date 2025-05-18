@@ -15,6 +15,7 @@ class _InputGuardrailResp(BaseModel):
 
 
 def input_guardrail(code: str) -> (bool, str):
+    print(code)
     p = _prompt("input-guardrail")
     parser = JsonOutputParser(pydantic_object=_InputGuardrailResp)
 
@@ -23,13 +24,15 @@ def input_guardrail(code: str) -> (bool, str):
             template=p.prompt,
             input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
+            template_format='mustache'
         )
         | _llm(p.config["model"], float(p.config["temperature"]))
         | parser
     )
 
     result: _InputGuardrailResp = chain.invoke({"code": code})
-    return result.code, result.condition
+    print(result)
+    return result['code'], result['condition']
 
 
 # ──────────────────────── Output guardrail ──────────────────────────
@@ -39,6 +42,7 @@ class _OutputGuardrailResp(BaseModel):
 
 def output_guardrail(optimized_code: str, human_feedback_list: List[str]) -> bool:
     p = _prompt("output-guardrail")
+    print(optimized_code)
     parser = JsonOutputParser(pydantic_object=_OutputGuardrailResp)
 
     chain = (
@@ -46,6 +50,7 @@ def output_guardrail(optimized_code: str, human_feedback_list: List[str]) -> boo
             template=p.prompt,
             input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
+            template_format='mustache'
         )
         | _llm(p.config["model"], float(p.config["temperature"]))
         | parser
@@ -53,4 +58,4 @@ def output_guardrail(optimized_code: str, human_feedback_list: List[str]) -> boo
 
     return chain.invoke(
         {"optimized_code": optimized_code, "human_feedback_list": human_feedback_list}
-    ).response
+    )['response']

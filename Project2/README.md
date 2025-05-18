@@ -64,15 +64,11 @@ az login
 # personalise
 export NAME=anshu
 export RG=Tredence-Batch2
-export LOC=eastus2              # choose any supported region
-
 export VAULT=vault$NAME
 export SP=sp$NAME
 export ACR=codeacr$NAME
 export ACI=aci$NAME
 export IMG=img$NAME
-
-export AOAI=${NAME}aoai         # Azure OpenAI resource name
 
 # (OPTIONAL) if you already have the keys:
 export AOAIKEY=b249ff7055e349c19b9665ff4df191ec   # leave empty to auto‑retrieve later
@@ -81,6 +77,16 @@ export LFSECRET=sk-lf-8f5062a3-4c73-46b8-81a7-a784c561916e
 export AZURE_DEPLOYMENT=telcogpt2
 export LANGFUSE_HOST=https://cloud.langfuse.com
 export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
+export FD=codeopt-fd-$NAME             # must be globally unique
+export REGION=centralindia             # adjust if you deployed ACIs elsewhere
+export FD_FQDN=${FD}.azurefd.net       # default hostname Front Door will give you
+
+BACKEND_LABEL=codeopt-backend-$NAME
+FRONT_LABEL=codeopt-frontend-$NAME
+REGION=centralindia
+BACKEND_FQDN=${BACKEND_LABEL}.${REGION}.azurecontainer.io
+FRONT_FQDN=${FRONT_LABEL}.${REGION}.azurecontainer.io
+
 ```
 
 
@@ -110,7 +116,7 @@ az ad sp create-for-rbac -n $SP \
   --sdk-auth > sp.json
 ```
 
-The JSON looks like:
+Above command exports a json file sp.json. The JSON looks like:
 
 ```json
 {
@@ -130,92 +136,42 @@ Copy the three fields—we’ll map them to environment variables.
 ```bash
 #export following env variables
 export VAULT_NAME=$VAULT
-export AZURE_CLIENT_SECRET=Bbw8Q~rOIZ4UlfPzXaOsiYa1Z1GY1kYSm-niodq5
+export AZURE_CLIENT_SECRET=Y.k8Q~Dz5nanYAZg7jqzKbOj_VU9T2KEqfP4Bdrh
 export AZURE_CLIENT_ID=cc8f42c4-5f99-417b-b833-3bc39649cf4a
 export AZURE_TENANT_ID=0d2a6053-e113-42e7-9169-f5cbed7a941f
-export SESSION_SECRET=$(openssl rand -hex 16)
 export AZURE_DEPLOYMENT=telcogpt2
 export LANGFUSE_HOST=https://cloud.langfuse.com
 export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
+# Cookie signing secret
+#export SESSION_SECRET=$(openssl rand -hex 16)
+# Local React app points to the backend
+export VITE_API_URL=http://localhost:8000
+```
 
+#### Backend: FastAPI ServerLaunch the backend service
+```bash
+# Launch the backend service
+cd code-optimizer/backend
+export $(grep -v '^#' .env | xargs)
   uvicorn main:app --reload --port 8000
 
-Below is the quickest repeatable way to spin up **both tiers on your laptop** (Ubuntu 20 / 22; similar on macOS).
-
-```
-code-optimizer/
-│
-├── backend/               # FastAPI sources + requirements.txt
-└── frontend/              # React-Vite sources + package.json
 ```
 
----
+# testing the backend
 
-## 1 Prereqs
+1. Navigate to http:127.0.0.1:8000/docs
+2. this launches swagger test interface to test each API, fill the input argument accordingly to test each service
 
-| Layer        | Tool version (min) | Install (Ubuntu)                                                                             |                                               |
-| ------------ | ------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| **Backend**  | Python 3.10+       | `sudo apt install python3.10 python3.10-venv`                                                |                                               |
-| **Frontend** | Node 18+ & npm     | \`curl -fsSL [https://deb.nodesource.com/setup\_18.x](https://deb.nodesource.com/setup_18.x) | sudo -E bash -`<br>`sudo apt install nodejs\` |
+Docs:
 
----
 
-## 2 Environment variables
-
-Create a **`.env`** file in the project root (never commit it):
-
-```bash
-# Key Vault lookup for creds
-BDC_VAULT_NAME=BDCvault
-
-# Service-principal creds (from sp.json)
-AZURE_CLIENT_ID=xxxxxxxx-...
-AZURE_CLIENT_SECRET=xxxxxxxx-...
-AZURE_TENANT_ID=xxxxxxxx-...
-
-# Cookie signing secret
-SESSION_SECRET=$(openssl rand -hex 16)
-
-# Local React app points to the backend
-VITE_API_URL=http://localhost:8000
-```
-
-Load it in every new shell:
-
-```bash
-export $(grep -v '^#' .env | xargs)
-```
-
-*(a helper like `direnv` or `dotenv-linter` can automate this)*
-
----
-
-## 3 Backend: FastAPI + Uvicorn
-
-```bash
-cd code-optimizer/backend
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# run
-uvicorn main:app --reload --port 8000
-```
-
-* `--reload` auto-restarts on file changes.
-* The startup log should show “Application startup complete.” and no Key Vault errors.
-
----
-
-## 4 Frontend: React-Vite dev server
+#### Frontend: React-Vite dev server
 
 Open **another terminal** (leave the backend running):
 
 ```bash
 cd code-optimizer/frontend
-sudo apt install npm  # enter the user VM password (Cloud.....)
+sudo apt install nodejs npm  # enter the user VM password (Cloud.....)
 npm install          # first time only
 npm run dev          # Vite dev server → http://localhost:5173
 ```
@@ -228,11 +184,10 @@ Vite prints something like:
 
 ---
 
-## 5 Open the app
 
 Navigate to **[http://localhost:5173](http://localhost:5173)** in a browser:
 
-1. Paste a public GitHub repo URL → **Clone**
+1. Paste a public GitHub repo URL → **Clone** 
 2. Choose a file → **Load**
 3. Click **Optimise** to hit the backend at `http://localhost:8000`.
 
@@ -240,25 +195,6 @@ Navigate to **[http://localhost:5173](http://localhost:5173)** in a browser:
 
 * Backend is reachable at the URL in `VITE_API_URL`.
 * React dev server and backend run on different ports (5173 vs 8000).
-
----
-
-## 6 Optional: run both in one command
-
-If you like a single process, install the **`task`** runner or **`concurrently`**:
-
-```bash
-# root/package.json (add dev script)
-{
-  "scripts": {
-    "dev": "concurrently \"npm --prefix frontend run dev\" \"bash -c 'cd backend && source .venv/bin/activate && uvicorn main:app --reload --port 8000'\""
-  },
-  "devDependencies": { "concurrently": "^8.2.0" }
-}
-
-npm install --save-dev concurrently
-npm run dev      # starts both servers together
-```
 
 ---
 
@@ -272,7 +208,6 @@ npm run dev      # starts both servers together
 
 You now have the **backend and frontend running locally** with hot-reload; edit any Python or React file and the browser refreshes automatically.
 
-```
 
 ---
 
@@ -293,257 +228,101 @@ sudo az acr login -n $ACR -u $(az acr credential show -n $ACR --query username -
 \## 5 Docker build & push
 
 ```bash
-# BACKEND
-docker build -f backend.Dockerfile \
-  -t $IMG-backend:latest ./code-optimizer/backend
-docker tag $IMG-backend:latest $ACR.azurecr.io/$IMG-backend:latest
-docker push $ACR.azurecr.io/$IMG-backend:latest
+# BACKEND: build the docker image
+# make sure to run this command from code-optimizer directory
+sudo docker build -f backend.Dockerfile \
+  -t $IMG-backend:latest .
+
+# optional: Run the docker containerr locally
+sudo docker run -d -p 8000:8000 -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET -e VAULT_NAME=$VAULT_NAME -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID -e AZURE_TENANT_ID=$AZURE_TENANT_ID -e SESSION_SECRET=$(openssl rand -hex 16) -e AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT -e LANGFUSE_HOST=$LANGFUSE_HOST -e AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT -e COOKIE_SECURE=false -e ALLOWED_ORIGINS=http://localhost:8080 $IMG-backend:latest 
+
+# Test the backend using swagger by navigating to http:!27.0.0.1:8000/docs
+
+sudo docker tag $IMG-backend:latest $ACR.azurecr.io/$IMG-backend:latest
+sudo docker push $ACR.azurecr.io/$IMG-backend:latest
 
 # FRONTEND
-docker build -f frontend.Dockerfile \
-  -t $IMG-frontend:latest ./code-optimizer/frontend
-docker tag $IMG-frontend:latest $ACR.azurecr.io/$IMG-frontend:latest
-docker push $ACR.azurecr.io/$IMG-frontend:latest
+# make sure to navigate to code-optimizer folder 
+sudo docker build -f frontend.Dockerfile \
+  --build-arg BACKEND_HOST=localhost \
+  -t $IMG-frontend:latest .
+
+
+sudo docker run -d -p 8080:80 $IMG-frontend:latest
+
 ```
 
----
 
-\## 6 Container Instances
 
 ```bash
 # BACKEND ACI
 az container create -g $RG -n ${ACI}-backend \
   --image $ACR.azurecr.io/$IMG-backend:latest \
   --registry-login-server $ACR.azurecr.io \
-  --cpu 1 --memory 2 \
+  --registry-username $(az acr credential show -n $ACR --query username -o tsv) \
+  --registry-password $(az acr credential show -n $ACR --query passwords[0].value -o tsv) \
+  --cpu 1 --memory 2 --os-type Linux --ip-address public \
+  --dns-name-label $BACKEND_LABEL \
+  --ports 8000 \
   --environment-variables \
-      BDC_VAULT_NAME=$VAULT \
-      $(jq -r '"AZURE_CLIENT_ID="+.clientId'       sp.json) \
-      $(jq -r '"AZURE_CLIENT_SECRET="+.clientSecret' sp.json) \
-      $(jq -r '"AZURE_TENANT_ID="+.tenantId'       sp.json) \
+      VAULT_NAME=$VAULT_NAME \
+      ALLOWED_ORIGINS=http://$FRONT_FQDN \
+      AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+      AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+      AZURE_TENANT_ID=$AZURE_TENANT_ID \
+      AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT \
+      LANGFUSE_HOST=$LANGFUSE_HOST \
+      AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT
       SESSION_SECRET=$(openssl rand -hex 16) \
-  --dns-name-label ${ACI}-backend-$RANDOM \
-  --ports 8000
 
-BACKEND_FQDN=$(az container show -g $RG -n ${ACI}-backend \
-               --query ipAddress.fqdn -o tsv)
 
+# check list of containers
+az container list -g $RG -o table
+
+
+# check FQDN and ensure it is same as BACKEND_FQDN
+az container show -g $RG -n ${ACI}-backend \
+  --query "ipAddress.{fqdn:fqdn,ip:ip,ports:ports}" -o table
+
+
+# rebuild docker image with new env variable
+sudo docker build -f frontend.Dockerfile \
+-t $ACR.azurecr.io/$IMG-frontend:latest \
+--build-arg API_URL=http://$BACKEND_FQDN:8000 .
+
+
+sudo docker push $ACR.azurecr.io/$IMG-frontend:latest
 # FRONTEND ACI
 az container create -g $RG -n ${ACI}-frontend \
   --image $ACR.azurecr.io/$IMG-frontend:latest \
   --registry-login-server $ACR.azurecr.io \
-  --cpu 1 --memory 1 \
-  --environment-variables VITE_API_URL=http://$BACKEND_FQDN:8000 \
-  --dns-name-label ${ACI}-frontend-$RANDOM \
-  --ports 80
-```
-
-Retrieve the public URL:
-
-```bash
-az container show -g $RG -n ${ACI}-frontend --query ipAddress.fqdn -o tsv
-```
-
----
-
-\## 7 Azure OpenAI resource + model deployment
-
-\### 7.1 Create the AOAI account
-
-```bash
-az cognitiveservices account create \
-  -g $RG -n $AOAI -l $LOC \
-  --kind OpenAI --sku S0 \
-  --yes
-```
-
-\### 7.2 Get / store the API key
-
-```bash
-if [ -z "$AOAIKEY" ]; then
-  AOAIKEY=$(az cognitiveservices account keys list -g $RG -n $AOAI --query key1 -o tsv)
-fi
-
-az keyvault secret set --vault-name $VAULT -n "AZURE-OPENAI-API-KEY" --value "$AOAIKEY"
-```
-
-\### 7.3 Deploy a model (e.g., GPT‑4o with deployment name `gpt4o`)
-
-> **Important:** You must have been granted OpenAI model access in the Azure portal first.
-
-```bash
-az cognitiveservices account deployment create \
-  -g $RG -n $AOAI \
-  --deployment-name gpt4o \
-  --model-name gpt-4o \
-  --model-version "2024-05-13" \
-  --model-format OpenAI \
-  --scale-settings scale-type="Standard"
-```
-
-After the deployment status shows **succeeded**, the backend can hit:
+  --registry-username $(az acr credential show -n $ACR --query username -o tsv) \
+  --registry-password $(az acr credential show -n $ACR --query passwords[0].value -o tsv) \
+  --cpu 1 --memory 2 --os-type Linux --ip-address public \
+  --dns-name-label $FRONT_LABEL \
+  --ports 80 
 
 ```
-https://$AOAI.openai.azure.com/openai/deployments/gpt4o/chat/completions?api-version=2024-02-15-preview
-```
-
-> The backend code already targets that endpoint (`azure_endpoint="https://user1-mai722r2-eastus2.openai.azure.com/"`).
-> Replace that string in `guardrails.py` / `optimizers.py` with your newly created endpoint URL (`https://$AOAI.openai.azure.com/`).
-
----
-
-\## Done 🎉
-
-You now have:
-
-* Key Vault `$VAULT` holding **AOAI key + Langfuse keys**
-* Service principal `$SP` with “Secrets User” rights
-* Docker images in ACR `$ACR`
-* Frontend & backend running as **Azure Container Instances** under the `$ACI-*` names
-* **Azure OpenAI** resource `$AOAI` with a GPT‑4o deployment named `gpt4o` ready for low‑latency chat completions.
+# check list of containers
+az container list -g $RG -o table
 
 
+# check FQDN and ensure it is same as FRONTEND_FQDN
+az container show -g $RG -n ${ACI}-frontend \
+  --query "ipAddress.{fqdn:fqdn,ip:ip,ports:ports}" -o table
 
 
-Create a `.env` file at the project root:
+# ------------------------------------------------------------------
+# 7.  Delete and Clean the deployments 
+# ------------------------------------------------------------------
 
-```bash
-cat <<'EOF' > .env
-# --------- vault & service principal ----------
-BDC_VAULT_NAME=BDCvault
-AZURE_CLIENT_ID=<clientId-from-sp.json>
-AZURE_CLIENT_SECRET=<clientSecret-from-sp.json>
-AZURE_TENANT_ID=<tenantId-from-sp.json>
+# delete the container instance
+az container delete -g $RG -n ${ACI}-frontend --yes
+az container delete -g $RG -n ${ACI}-backend --yes
 
-# --------- FastAPI session secret -------------
-SESSION_SECRET=$(openssl rand -hex 16)
+# delete the container registry
+az acr delete -g $RG -n $ACR --yes
 
-# (only needed when running the frontend locally)
-VITE_API_URL=http://localhost:8000
-EOF
-```
-
-Load it in your shell:
-
-```bash
-export $(grep -v '^#' .env | xargs)
-```
-
----
-
-\## 🐍 Backend setup (local dev)
-
-```bash
-cd code-optimizer/backend
-python3 -m venv .venv            # Python 3.10+
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload        # default :8000
-```
-
-The first boot will create the three prompts in Langfuse (only once).
-
----
-
-\## 🕸️ Frontend setup (local dev)
-
-```bash
-cd ../frontend
-# install Node via nvm if you don’t have it
-npm install
-npm run dev                      # Vite dev server on :5173
-```
-
-Open [http://localhost:5173](http://localhost:5173).
-While the backend churns, you’ll see a spinner (⏳ Working…).
-
----
-
-\## 🐳 Docker build & push
-
-\### 1 Backend image
-
-```bash
-cd code-optimizer
-docker build -f backend.Dockerfile -t code-optimizer-backend:latest ./backend
-az acr login -n codeoptaicr
-docker tag code-optimizer-backend:latest codeoptaicr.azurecr.io/code-optimizer-backend:latest
-docker push codeoptaicr.azurecr.io/code-optimizer-backend:latest
-```
-
-**`backend.Dockerfile`**
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY backend/ .
-ENV PYTHONUNBUFFERED=1
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-\### 2 Frontend image (static Nginx)
-
-```bash
-# build React production bundle
-cd frontend
-npm run build               # creates dist/
-cd ..
-
-# Docker
-docker build -f frontend.Dockerfile -t code-optimizer-frontend:latest ./frontend
-docker tag code-optimizer-frontend:latest codeoptaicr.azurecr.io/code-optimizer-frontend:latest
-docker push codeoptaicr.azurecr.io/code-optimizer-frontend:latest
-```
-
-**`frontend.Dockerfile`**
-
-```dockerfile
-FROM nginx:1.25-alpine
-COPY --from=node:20-alpine /usr/local/bin/node /usr/local/bin/node
-WORKDIR /usr/share/nginx/html
-COPY frontend/dist/ .
-# simple CORS header
-RUN sed -i '38i add_header Access-Control-Allow-Origin *;' /etc/nginx/nginx.conf
-EXPOSE 80
-```
-
----
-
-\## ☁️ Deploy to Azure Container Instances
-
-```bash
-# backend
-az container create -g code-opt-rg -n code-opt-backend \
-  --image codeoptaicr.azurecr.io/code-optimizer-backend:latest \
-  --registry-login-server codeoptaicr.azurecr.io \
-  --cpu 1 --memory 2 \
-  --environment-variables \
-     BDC_VAULT_NAME=$BDC_VAULT_NAME \
-     AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-     AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-     AZURE_TENANT_ID=$AZURE_TENANT_ID \
-     SESSION_SECRET=$SESSION_SECRET \
-  --dns-name-label code-opt-backend-$RANDOM --ports 8000
-
-# frontend (pointing to backend FQDN)
-BACKEND_FQDN=$(az container show -g code-opt-rg -n code-opt-backend --query ipAddress.fqdn -o tsv)
-az container create -g code-opt-rg -n code-opt-frontend \
-  --image codeoptaicr.azurecr.io/code-optimizer-frontend:latest \
-  --registry-login-server codeoptaicr.azurecr.io \
-  --cpu 1 --memory 1 \
-  --environment-variables VITE_API_URL=http://$BACKEND_FQDN:8000 \
-  --dns-name-label code-opt-frontend-$RANDOM --ports 80
-```
-
-Grab the frontend FQDN:
-
-```bash
-az container show -g code-opt-rg -n code-opt-frontend --query ipAddress.fqdn -o tsv
-```
-
-Open it in your browser—you’re live on Azure 🎉
 
 ---
 
@@ -563,3 +342,206 @@ Open it in your browser—you’re live on Azure 🎉
 This project remains MIT‑licensed. See `LICENSE`.
 
 
+FRONT=http://codeopt-frontend-anshu.centralindia.azurecontainer.io
+BACK=http://codeopt-backend-anshu.centralindia.azurecontainer.io:8000
+
+# 1) From your laptop check CORS headers
+curl -I -X POST $BACK/session -H "Origin: $FRONT"
+# Expect:
+# HTTP/1.1 200 OK
+# access-control-allow-origin: http://codeopt-frontend-anshu.centralindia.azurecontainer.io
+# access-control-allow-credentials: true
+# set-cookie: session=...
+
+# 2) OPTIONS pre-flight
+curl -I -X OPTIONS $BACK/clone -H "Origin: $FRONT" -H "Access-Control-Request-Method: POST"
+# Expect 204/200 with the two CORS headers
+
+
+
+Below is an **end-to-end “Front Door + cookie” recipe** that brings you back to
+the **original cookie workflow** while making it work from *any* browser,
+because all traffic now comes from a **single HTTPS origin** served by
+**Azure Front Door Standard**.
+
+---
+
+
+*(keep the generic `@app.options` 204 handler you added earlier)*
+
+Re-build & push the backend image (`backend:v-cookie`) and redeploy the ACI:
+
+```bash
+az container delete -g $RG -n $BACK_LABEL --yes
+az container create -g $RG -n $BACK_LABEL \
+  --image $ACR.azurecr.io/$IMG-backend:v-cookie \
+  --registry-login-server $ACR.azurecr.io \
+  --cpu 1 --memory 2 --ports 8000 \
+  --dns-name-label $BACK_LABEL \
+  --environment-variables \
+     ALLOWED_ORIGINS=https://$FD_FQDN \
+     BDC_VAULT_NAME=$VAULT \
+     AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+     AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+     AZURE_TENANT_ID=$AZURE_TENANT_ID \
+     SESSION_SECRET=$SESSION_SECRET
+```
+
+---
+
+## 2  Restore the **frontend** to cookie calls
+
+`src/api.js` (original style)
+
+```js
+const API = import.meta.env.VITE_API_URL || "/api";   // ← we’ll proxy /api
+
+export async function createSession() {
+  await fetch(`${API}/session`, { method: "POST", credentials: "include" });
+}
+
+export async function cloneRepo(url) {
+  const res = await fetch(`${API}/clone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ repo_url: url }),
+  });
+  if (!res.ok) throw new Error("clone failed");
+  return res.json();
+}
+
+/* getFile and optimise identical, keep credentials:"include" */
+```
+
+### Frontend Dockerfile (proxy `/api` → backend)
+
+```dockerfile
+# frontend.Dockerfile
+FROM node:20-alpine AS build
+ARG API_URL=/api                     # placeholder but not used at runtime
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci --silent
+COPY frontend/ .
+RUN npm run build                    # dist/
+
+FROM nginx:1.25-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# proxy /api/* to the backend ACI
+RUN printf 'location /api/ {\n  proxy_pass http://%s:8000/;\n  proxy_set_header Host $host;\n}\n' ${BACK_FQDN} \
+    > /etc/nginx/conf.d/api_proxy.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+Build & push:
+
+```bash
+docker build -f frontend.Dockerfile \
+  -t $ACR.azurecr.io/$IMG-frontend:v-cookie .
+docker push $ACR.azurecr.io/$IMG-frontend:v-cookie
+```
+
+Redeploy the front-end ACI:
+
+```bash
+az container delete -g $RG -n $FRONT_LABEL --yes
+az container create -g $RG -n $FRONT_LABEL \
+  --image $ACR.azurecr.io/$IMG-frontend:v-cookie \
+  --registry-login-server $ACR.azurecr.io \
+  --cpu 1 --memory 1 --ports 80 \
+  --dns-name-label $FRONT_LABEL
+```
+
+---
+
+## 3  Create **Azure Front Door Standard**
+
+```bash
+az network front-door profile create -g $RG -n $FD --sku Standard_AzureFrontDoor
+
+# 3.1  origin groups
+az network front-door origin-group create -g $RG --profile-name $FD \
+  -n spa-group --probe-request-type GET --probe-protocol Http --probe-path /
+az network front-door origin-group create -g $RG --profile-name $FD \
+  -n api-group --probe-request-type GET --probe-protocol Http --probe-path /session
+
+# 3.2  origins
+az network front-door origin create -g $RG --profile-name $FD \
+  --origin-group spa-group -n spaOrigin \
+  --host-name $FRONT_FQDN --origin-host-header $FRONT_FQDN --priority 1 --weight 100 --http-port 80
+az network front-door origin create -g $RG --profile-name $FD \
+  --origin-group api-group -n apiOrigin \
+  --host-name $BACK_FQDN --origin-host-header $BACK_FQDN --priority 1 --weight 100 --http-port 8000
+
+# 3.3  routes
+az network front-door route create -g $RG --profile-name $FD \
+  -n spaRoute --endpoint-name default \
+  --origin-group spa-group \
+  --frontend-endpoints default \
+  --https-redirect Enabled \
+  --patterns "/" "/*"
+az network front-door route create -g $RG --profile-name $FD \
+  -n apiRoute --endpoint-name default \
+  --origin-group api-group \
+  --frontend-endpoints default \
+  --https-redirect Enabled \
+  --patterns "/api/*"
+
+# Front Door generates an SSL cert automatically for *.azurefd.net
+```
+
+**Wait 3-5 min** for Front Door to propagate.
+
+Your public URL is now
+
+```
+https://codeopt-fd-anshu.azurefd.net
+```
+
+*(You can later add a custom domain + free Front Door cert.)*
+
+---
+
+## 4  Test end-to-end
+
+1. Open **[https://codeopt-fd-anshu.azurefd.net](https://codeopt-fd-anshu.azurefd.net)**
+   The SPA loads.
+
+2. Open DevTools ▸ Network
+
+   * `POST https://codeopt-fd-anshu.azurefd.net/api/session` → **200**
+     Browser stores **`session=…; SameSite=None; Secure`**
+   * `POST https://codeopt-fd-anshu.azurefd.net/api/clone` → **200**
+     File list appears.
+
+3. Swagger (optional) — now lives at
+   `https://codeopt-fd-anshu.azurefd.net/api/docs`
+
+---
+
+## 5  Cost & cleanup
+
+* **Front Door Standard** – base ≈ ₹2.2 /hour (`$0.032`), plus data.
+* **Turn off** ACIs and the FD profile when you finish testing:
+
+```bash
+az container delete -g $RG -n $FRONT_LABEL --yes
+az container delete -g $RG -n $BACK_LABEL  --yes
+az network front-door profile delete -g $RG -n $FD --yes
+```
+
+---
+
+### You now have
+
+* One HTTPS origin (`*.azurefd.net`)
+* Original cookie-based session (SameSite=None; Secure)
+* No CORS headaches (Front Door handles host/port)
+* Minimal infra — two ACIs + Front Door
+
+You can roll this pattern into CI/CD or swap ACIs for AKS/Apps later
+without touching the cookie logic again.

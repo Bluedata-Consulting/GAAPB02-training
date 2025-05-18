@@ -33,6 +33,7 @@ def _optimize_once(code: str) -> str:
             template=p.prompt,
             input_variables=p.variables,
             partial_variables={"format_instructions": parser.get_format_instructions()},
+            template_format='mustache'
         )
         | _llm(p.config["model"], float(p.config["temperature"]))
         | parser
@@ -40,7 +41,7 @@ def _optimize_once(code: str) -> str:
 
     return chain.invoke(
         {"user_input": code}, config={"callbacks": [CallbackHandler(host=os.getenv("LANGFUSE_HOST"))]}
-    ).code
+    )['code']
 
 
 def optimise_with_guardrails(code: str, feedback_history: List[str]) -> str:

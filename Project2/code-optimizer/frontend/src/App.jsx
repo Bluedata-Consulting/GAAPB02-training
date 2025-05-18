@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, {useEffect, useState} from "react";
 import { createSession, cloneRepo, getFile, optimise } from "./api";
 
 export default function App() {

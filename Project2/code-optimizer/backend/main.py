@@ -1,8 +1,7 @@
-import logging
 import os
+import logging
 from datetime import timedelta
 from pathlib import Path
-from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,108 +12,92 @@ from prompt_setup import register_prompts_once
 from utils import clone_repo, list_files
 from optimizers import optimise_with_guardrails
 
-# ───────────── logging config ─────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s | %(name)s: %(message)s",
-)
+
+
+# ─── logging ───────────────────────────────────
+logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger("api")
 
-# ───────────── FastAPI setup ──────────────
 app = FastAPI(title="Code Optimizer API")
+
+register_prompts_once()
+# ─── CORS ────────────────────────────────────────────────────────────────
+# Since the SPA now always hits the API at the *same* origin (via /api),
+# you can safely allow all origins or remove this middleware altogether.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # front‑end dev only; tighten for prod
-    allow_credentials=True,
+    allow_origins=["*"],          # proxy avoids any real cross-site
+    allow_credentials=True,       # cookies are included
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ───────────── prompt registration once ───
-register_prompts_once()
-
-# ───────────── session utilities ──────────
-_SIGNER = URLSafeTimedSerializer(os.getenv("SESSION_SECRET", "dev‑secret"))
-_SESSION_LIFETIME = timedelta(hours=8)
+# ─── session via cookie ─────────────────────────
+_SIGNER = URLSafeTimedSerializer(os.getenv("SESSION_SECRET","dev-secret"))
+_SESSION_LIFE = timedelta(hours=8)
 
 
-def get_session_token(request: Request) -> str:
-    token = request.cookies.get("session")
-    if not token:
-        raise HTTPException(status_code=401, detail="No session")
+
+def get_session_token(req: Request) -> str:
+    t = req.cookies.get("session")
+    if not t: raise HTTPException(401, "No session")
     try:
-        return _SIGNER.loads(token, max_age=_SESSION_LIFETIME.total_seconds())
+        return _SIGNER.loads(t, max_age=_SESSION_LIFE.total_seconds())
     except (BadSignature, SignatureExpired):
-        raise HTTPException(status_code=401, detail="Invalid session")
+        raise HTTPException(401, "Invalid session")
 
 
-def set_session_cookie(resp: Response) -> str:
+def set_session_cookie(resp: Response):
     token = _SIGNER.dumps("ok")
-    resp.set_cookie("session", token, max_age=_SESSION_LIFETIME.total_seconds(), 
-                    httponly=True, samesite="lax",path="/")
-    return token
+    secure = os.getenv("COOKIE_SECURE","false").lower() in ("1","true")
+    resp.set_cookie(
+        "session", token,
+        max_age=int(_SESSION_LIFE.total_seconds()),
+        httponly=True,
+        samesite="lax",   # same-origin fetch works fine
+        secure=secure,    # only True in HTTPS/Azure
+        path="/",
+    )
 
+# ─── in-memory per-session state ────────────────
+STATE: dict[str,dict] = {}
 
-# ───────────── in‑memory per‑session state ─────────────
-STATE = {}  # session_id -> dict
+def _state(sid:str) -> dict:
+    return STATE.setdefault(sid, {"repo_path":None, "feedback": []})
 
-
-def _state(session_id: str) -> dict:
-    return STATE.setdefault(session_id, {"repo_path": None, "feedback": []})
-
-
-# ───────────── Schemas ─────────────
+# ─── Schemas ───────────────────────────────────
 class CloneReq(BaseModel):
     repo_url: str
 
-
-class SelectFileReq(BaseModel):
-    relative_path: str
-
-
 class OptimiseReq(BaseModel):
     code: str
-    feedback: str | None = None  # optional free‑text feedback
+    feedback: str | None = None
 
 
-# ───────────── Endpoints ────────────
+
+# ─── Endpoints ───────────────────────────────────────────────────────────
 @app.post("/session")
 def create_session(response: Response):
-    sid = set_session_cookie(response)
-    return {"session": sid}
-
+    set_session_cookie(response)
+    return {"ok": True}
 
 @app.post("/clone")
-def clone_repo_ep(req: CloneReq, session_id: str = Depends(get_session_token)):
-    repo_path = clone_repo(req.repo_url, Path("clone_folder"))
-    _state(session_id)["repo_path"] = repo_path
-    files = list_files(repo_path)
-    return {"files": files}
-
+def clone_ep(req: CloneReq, sid: str = Depends(get_session_token)):
+    path = clone_repo(req.repo_url, Path("clone_folder"))
+    _state(sid)["repo_path"] = path
+    return {"files": list_files(path)}
 
 @app.get("/file")
-def get_file(relative_path: str, session_id: str = Depends(get_session_token)):
-    repo = _state(session_id).get("repo_path")
-    if not repo:
-        raise HTTPException(400, "Repo not cloned")
-    abs_path = repo / relative_path
-    if not abs_path.exists():
-        raise HTTPException(404, "File not found")
-    return FileResponse(abs_path)
-
+def file_ep(relative_path: str, sid: str = Depends(get_session_token)):
+    repo = _state(sid)["repo_path"] or HTTPException(400, "No repo")
+    p = repo / relative_path
+    if not p.exists(): raise HTTPException(404, "Not found")
+    return FileResponse(p)
 
 @app.post("/optimise")
-def optimise(req: OptimiseReq, session_id: str = Depends(get_session_token)):
+def optimise_ep(req: OptimiseReq, session_id: str = Depends(get_session_token)):
     st = _state(session_id)
-    feedback_hist: List[str] = st["feedback"]
     if req.feedback:
-        feedback_hist.append(req.feedback)
-
-    try:
-        new_code = optimise_with_guardrails(req.code, feedback_hist)
-    except ValueError as ve:
-        raise HTTPException(400, str(ve))
-    except RuntimeError as re:
-        raise HTTPException(500, str(re))
-
-    return {"optimised": new_code, "feedback_history": feedback_hist}
+        st["feedback"].append(req.feedback)
+    new_code = optimise_with_guardrails(req.code, st["feedback"])
+    return {"optimised": new_code, "feedback_history": st["feedback"]}
