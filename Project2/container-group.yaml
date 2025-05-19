@@ -23,7 +23,7 @@ properties:
       - name: VAULT_NAME
         value: vaultanshu
       - name: AZURE_CLIENT_SECRET
-        value: Y.k8Q~Dz5nanYAZg7jqzKbOj_VU9T2KEqfP4Bdrh
+        value: Qo08Q~6oJCTHJkBkrA2gSQZr8YlznTnVk26tncv.
       - name: AZURE_CLIENT_ID
         value: cc8f42c4-5f99-417b-b833-3bc39649cf4a
       - name: AZURE_TENANT_ID
@@ -34,6 +34,12 @@ properties:
         value: https://cloud.langfuse.com
       - name: AZURE_OPENAI_ENDPOINT
         value: https://swedencentral.api.cognitive.microsoft.com/
+      - name: SESSION_SECRET
+        value: AS0D4sidjUhCX+yw9PyGTbSiQqF59Fcgc9wa85axW/k=
+      - name: RUNNING_IN_AZURE
+        value: 'True'
+      - name: ALLOWED_ORIGINS
+        value: http://codeopt-app.centralindia.azurecontainer.io,http://localhost
       image: codeacranshu.azurecr.io/imganshu-backend:latest
       ports:
       - port: 8000
