@@ -141,7 +141,7 @@ export VITE_API_URL=http://localhost:8000
 
 #### Backend: FastAPI ServerLaunch the backend service
 ```bash
-# Launch the backend service
+# Launch the backend service locally
 cd Project2/code-optimizer/backend
 uvicorn main:app --reload --port 8000
 
@@ -160,8 +160,9 @@ Docs:
 Open **another terminal** (leave the backend running):
 
 ```bash
-cd code-optimizer/frontend
+cd Project2/code-optimizer/frontend
 sudo apt install nodejs npm  # enter the user VM password (Cloud.....)
+# delete the folder frontend/node_modules
 npm install          # first time only
 npm run dev          # Vite dev server → http://localhost:5173
 ```
