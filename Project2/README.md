@@ -166,7 +166,7 @@ sudo apt install nodejs npm  # enter the user VM password (Cloud.....)
 npm install          # first time only
 npm run dev          # Vite dev server → http://localhost:5173
 ```
-
+demo repo for test : https://github.com/anshupandey/mlops-ey25
 Vite prints something like:
 
 ```
