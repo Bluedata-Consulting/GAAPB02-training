@@ -80,15 +80,12 @@ export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
 export FD=codeopt-fd-$NAME             # must be globally unique
 export REGION=centralindia             # adjust if you deployed ACIs elsewhere
 export FD_FQDN=${FD}.azurefd.net       # default hostname Front Door will give you
-
-BACKEND_LABEL=codeopt-backend-$NAME
-FRONT_LABEL=codeopt-frontend-$NAME
+export SESSION_SECRET=$(openssl rand -base64 32)
+export RUNNING_IN_AZURE=False
+export APPINSIGHTNAME=azureai$NAME
 REGION=centralindia
-BACKEND_FQDN=${BACKEND_LABEL}.${REGION}.azurecontainer.io
-FRONT_FQDN=${FRONT_LABEL}.${REGION}.azurecontainer.io
 
 ```
-
 
 
 ---
@@ -234,7 +231,7 @@ sudo docker build -f backend.Dockerfile \
   -t $IMG-backend:latest .
 
 # optional: Run the docker containerr locally
-sudo docker run -d -p 8000:8000 -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET -e VAULT_NAME=$VAULT_NAME -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID -e AZURE_TENANT_ID=$AZURE_TENANT_ID -e SESSION_SECRET=$(openssl rand -hex 16) -e AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT -e LANGFUSE_HOST=$LANGFUSE_HOST -e AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT -e COOKIE_SECURE=false -e ALLOWED_ORIGINS=http://localhost:8080 $IMG-backend:latest 
+sudo docker run -d -p 8000:8000 -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET -e VAULT_NAME=$VAULT_NAME -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID -e AZURE_TENANT_ID=$AZURE_TENANT_ID -e SESSION_SECRET=$(openssl rand -hex 16) -e AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT -e RUNNING_IN_AZURE=$RUNNING_IN_AZURE -e LANGFUSE_HOST=$LANGFUSE_HOST -e AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT -e COOKIE_SECURE=false -e ALLOWED_ORIGINS=http://localhost:8080 $IMG-backend:latest
 
 # Test the backend using swagger by navigating to http:!27.0.0.1:8000/docs
 
@@ -250,11 +247,41 @@ sudo docker build -f frontend.Dockerfile \
 
 sudo docker run -d -p 8080:80 $IMG-frontend:latest
 
+
+sudo docker tag $IMG-frontend:latest $ACR.azurecr.io/$IMG-frontend:latest
+sudo docker push $ACR.azurecr.io/$IMG-frontend:latest
+
 ```
 
 
 
 ```bash
+
+ACR_USERNAME=$(az acr credential show --name myacrname --query "username" -o tsv)
+ACR_PASSWORD=$(az acr credential show --name myacrname --query "passwords[0].value" -o tsv)
+
+# Create a container group with both containers
+az container create -g $RG -n ${ACI}-group \
+  --image $ACR.azurecr.io/$IMG-backend:latest \
+  --image $ACR.azurecr.io/$IMG-frontend:latest \
+  --registry-login-server $ACR.azurecr.io \
+  --registry-username $(az acr credential show -n $ACR --query username -o tsv) \
+  --registry-password $(az acr credential show -n $ACR --query passwords[0].value -o tsv) \
+  --dns-name-label codeopt-app \
+  --cpu 2 --memory 4 --os-type Linux --ip-address public \
+  --ports 80 8000 \
+  --environment-variables \
+      VAULT_NAME=$VAULT_NAME \
+      AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+      AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+      AZURE_TENANT_ID=$AZURE_TENANT_ID \
+      AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT \
+      LANGFUSE_HOST=$LANGFUSE_HOST \
+      AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
+      SESSION_SECRET=$(openssl rand -hex 16) \
+      BACKEND_URL=http://localhost:8000
+
+
 # BACKEND ACI
 az container create -g $RG -n ${ACI}-backend \
   --image $ACR.azurecr.io/$IMG-backend:latest \
@@ -273,7 +300,7 @@ az container create -g $RG -n ${ACI}-backend \
       AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT \
       LANGFUSE_HOST=$LANGFUSE_HOST \
       AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT
-      SESSION_SECRET=$(openssl rand -hex 16) \
+      SESSION_SECRET=$(openssl rand -hex 16)
 
 
 # check list of containers
@@ -413,135 +440,94 @@ export async function cloneRepo(url) {
 
 /* getFile and optimise identical, keep credentials:"include" */
 ```
+# Create Application Insights
+az monitor app-insights component create \
+  --app $APPINSIGHTNAME \
+  --location $REGION \
+  --application-type web \
+  -g $RG 
 
-### Frontend Dockerfile (proxy `/api` → backend)
 
-```dockerfile
-# frontend.Dockerfile
-FROM node:20-alpine AS build
-ARG API_URL=/api                     # placeholder but not used at runtime
-WORKDIR /app
-COPY frontend/package*.json ./
-RUN npm ci --silent
-COPY frontend/ .
-RUN npm run build                    # dist/
+# Get the instrumentation key
+APPINSIGHTS_INSTRUMENTATIONKEY=$(az monitor app-insights component show \
+  --app $APPINSIGHTNAME \
+  -g $RG \
+  --query instrumentationKey -o tsv)
 
-FROM nginx:1.25-alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+VITE_APPINSIGHTS_INSTRUMENTATIONKEY=$APPINSIGHTS_INSTRUMENTATIONKEY
+# Create a user-assigned managed identity
+az identity create \
+  --name codeopt-identity \
+  --resource-group $RG
 
-# proxy /api/* to the backend ACI
-RUN printf 'location /api/ {\n  proxy_pass http://%s:8000/;\n  proxy_set_header Host $host;\n}\n' ${BACK_FQDN} \
-    > /etc/nginx/conf.d/api_proxy.conf
+# Get the principal ID and resource ID of the managed identity
+MANAGED_IDENTITY_PRINCIPAL_ID=$(az identity show \
+  --name codeopt-identity \
+  --resource-group myResourceGroup \
+  --query principalId -o tsv)
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
+MANAGED_IDENTITY_RESOURCE_ID=$(az identity show \
+  --name codeopt-identity \
+  --resource-group myResourceGroup \
+  --query id -o tsv)
 
-Build & push:
-
-```bash
-docker build -f frontend.Dockerfile \
-  -t $ACR.azurecr.io/$IMG-frontend:v-cookie .
-docker push $ACR.azurecr.io/$IMG-frontend:v-cookie
-```
-
-Redeploy the front-end ACI:
-
-```bash
-az container delete -g $RG -n $FRONT_LABEL --yes
-az container create -g $RG -n $FRONT_LABEL \
-  --image $ACR.azurecr.io/$IMG-frontend:v-cookie \
-  --registry-login-server $ACR.azurecr.io \
-  --cpu 1 --memory 1 --ports 80 \
-  --dns-name-label $FRONT_LABEL
-```
-
----
-
-## 3  Create **Azure Front Door Standard**
-
-```bash
-az network front-door profile create -g $RG -n $FD --sku Standard_AzureFrontDoor
-
-# 3.1  origin groups
-az network front-door origin-group create -g $RG --profile-name $FD \
-  -n spa-group --probe-request-type GET --probe-protocol Http --probe-path /
-az network front-door origin-group create -g $RG --profile-name $FD \
-  -n api-group --probe-request-type GET --probe-protocol Http --probe-path /session
-
-# 3.2  origins
-az network front-door origin create -g $RG --profile-name $FD \
-  --origin-group spa-group -n spaOrigin \
-  --host-name $FRONT_FQDN --origin-host-header $FRONT_FQDN --priority 1 --weight 100 --http-port 80
-az network front-door origin create -g $RG --profile-name $FD \
-  --origin-group api-group -n apiOrigin \
-  --host-name $BACK_FQDN --origin-host-header $BACK_FQDN --priority 1 --weight 100 --http-port 8000
-
-# 3.3  routes
-az network front-door route create -g $RG --profile-name $FD \
-  -n spaRoute --endpoint-name default \
-  --origin-group spa-group \
-  --frontend-endpoints default \
-  --https-redirect Enabled \
-  --patterns "/" "/*"
-az network front-door route create -g $RG --profile-name $FD \
-  -n apiRoute --endpoint-name default \
-  --origin-group api-group \
-  --frontend-endpoints default \
-  --https-redirect Enabled \
-  --patterns "/api/*"
-
-# Front Door generates an SSL cert automatically for *.azurefd.net
-```
-
-**Wait 3-5 min** for Front Door to propagate.
-
-Your public URL is now
-
-```
-https://codeopt-fd-anshu.azurefd.net
-```
-
-*(You can later add a custom domain + free Front Door cert.)*
-
----
-
-## 4  Test end-to-end
-
-1. Open **[https://codeopt-fd-anshu.azurefd.net](https://codeopt-fd-anshu.azurefd.net)**
-   The SPA loads.
-
-2. Open DevTools ▸ Network
-
-   * `POST https://codeopt-fd-anshu.azurefd.net/api/session` → **200**
-     Browser stores **`session=…; SameSite=None; Secure`**
-   * `POST https://codeopt-fd-anshu.azurefd.net/api/clone` → **200**
-     File list appears.
-
-3. Swagger (optional) — now lives at
-   `https://codeopt-fd-anshu.azurefd.net/api/docs`
-
----
-
-## 5  Cost & cleanup
-
-* **Front Door Standard** – base ≈ ₹2.2 /hour (`$0.032`), plus data.
-* **Turn off** ACIs and the FD profile when you finish testing:
-
-```bash
-az container delete -g $RG -n $FRONT_LABEL --yes
-az container delete -g $RG -n $BACK_LABEL  --yes
-az network front-door profile delete -g $RG -n $FD --yes
-```
-
----
-
-### You now have
-
-* One HTTPS origin (`*.azurefd.net`)
-* Original cookie-based session (SameSite=None; Secure)
-* No CORS headaches (Front Door handles host/port)
-* Minimal infra — two ACIs + Front Door
-
-You can roll this pattern into CI/CD or swap ACIs for AKS/Apps later
-without touching the cookie logic again.
+# Update container group with managed identity and app insights
+az container create \
+  --resource-group myResourceGroup \
+  --name codeopt-container-group \
+  --image myacrname.azurecr.io/codeopt-frontend:latest \
+  --image myacrname.azurecr.io/codeopt-backend:latest \
+  --registry-login-server myacrname.azurecr.io \
+  --registry-username $ACR_USERNAME \
+  --registry-password $ACR_PASSWORD \
+  --dns-name-label codeopt-app \
+  --ports 80 8000 \
+  --assign-identity $MANAGED_IDENTITY_RESOURCE_ID \
+  --containers-json "[
+    {
+      \"name\": \"frontend\", 
+      \"image\": \"myacrname.azurecr.io/codeopt-frontend:latest\",
+      \"resources\": {
+        \"requests\": {
+          \"cpu\": 1,
+          \"memoryInGb\": 1.5
+        }
+      },
+      \"ports\": [{\"port\": 80}],
+      \"environmentVariables\": [
+        {
+          \"name\": \"BACKEND_URL\",
+          \"value\": \"http://localhost:8000\"
+        },
+        {
+          \"name\": \"APPINSIGHTS_INSTRUMENTATIONKEY\",
+          \"value\": \"$APPINSIGHTS_KEY\"
+        }
+      ]
+    },
+    {
+      \"name\": \"backend\",
+      \"image\": \"myacrname.azurecr.io/codeopt-backend:latest\",
+      \"resources\": {
+        \"requests\": {
+          \"cpu\": 1,
+          \"memoryInGb\": 1.5
+        }
+      },
+      \"ports\": [{\"port\": 8000}],
+      \"environmentVariables\": [
+        {
+          \"name\": \"SESSION_SECRET\",
+          \"value\": \"$(openssl rand -base64 32)\"
+        },
+        {
+          \"name\": \"ALLOWED_ORIGINS\",
+          \"value\": \"http://codeopt-app.eastus.azurecontainer.io,https://codeopt-app.eastus.azurecontainer.io\"
+        },
+        {
+          \"name\": \"APPINSIGHTS_INSTRUMENTATIONKEY\",
+          \"value\": \"$APPINSIGHTS_KEY\"
+        }
+      ]
+    }
+  ]"

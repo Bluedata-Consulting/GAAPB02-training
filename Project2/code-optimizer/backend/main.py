@@ -12,8 +12,6 @@ from prompt_setup import register_prompts_once
 from utils import clone_repo, list_files
 from optimizers import optimise_with_guardrails
 
-
-
 # ─── logging ───────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger("api")
@@ -22,21 +20,28 @@ app = FastAPI(title="Code Optimizer API")
 
 register_prompts_once()
 # ─── CORS ────────────────────────────────────────────────────────────────
-# Since the SPA now always hits the API at the *same* origin (via /api),
-# you can safely allow all origins or remove this middleware altogether.
+# Get allowed origins from environment variable or use default
+default_origins = ["*"]  # Allow all origins by default
+allowed_origins = os.getenv("ALLOWED_ORIGINS", ",".join(default_origins)).split(",")
+_LOGGER.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # proxy avoids any real cross-site
-    allow_credentials=True,       # cookies are included
+    allow_origins=allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ─── session via cookie ─────────────────────────
-_SIGNER = URLSafeTimedSerializer(os.getenv("SESSION_SECRET","dev-secret"))
+# Get session secret from environment, with a warning if using default
+session_secret = os.getenv("SESSION_SECRET")
+if not session_secret:
+    _LOGGER.warning("No SESSION_SECRET environment variable set! Using development secret.")
+    session_secret = "dev-secret-not-for-production"
+
+_SIGNER = URLSafeTimedSerializer(session_secret)
 _SESSION_LIFE = timedelta(hours=8)
-
-
 
 def get_session_token(req: Request) -> str:
     t = req.cookies.get("session")
@@ -45,7 +50,6 @@ def get_session_token(req: Request) -> str:
         return _SIGNER.loads(t, max_age=_SESSION_LIFE.total_seconds())
     except (BadSignature, SignatureExpired):
         raise HTTPException(401, "Invalid session")
-
 
 def set_session_cookie(resp: Response):
     token = _SIGNER.dumps("ok")
@@ -73,8 +77,6 @@ class OptimiseReq(BaseModel):
     code: str
     feedback: str | None = None
 
-
-
 # ─── Endpoints ───────────────────────────────────────────────────────────
 @app.post("/session")
 def create_session(response: Response):
@@ -83,7 +85,11 @@ def create_session(response: Response):
 
 @app.post("/clone")
 def clone_ep(req: CloneReq, sid: str = Depends(get_session_token)):
-    path = clone_repo(req.repo_url, Path("clone_folder"))
+    # Use /tmp for container environments
+    clone_dir = Path("/tmp/clone_folder")
+    os.makedirs(clone_dir, exist_ok=True)
+    
+    path = clone_repo(req.repo_url, clone_dir)
     _state(sid)["repo_path"] = path
     return {"files": list_files(path)}
 
@@ -101,3 +107,8 @@ def optimise_ep(req: OptimiseReq, session_id: str = Depends(get_session_token)):
         st["feedback"].append(req.feedback)
     new_code = optimise_with_guardrails(req.code, st["feedback"])
     return {"optimised": new_code, "feedback_history": st["feedback"]}
+
+# Add health check endpoint for container health probes
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}

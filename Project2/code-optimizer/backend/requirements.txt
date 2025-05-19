@@ -8,3 +8,5 @@ pydantic==2.11.4
 azure-identity>=1.16
 azure-keyvault-secrets>=4.8
 uvicorn[standard]
+opencensus-ext-azure==1.1.14
+opencensus-ext-fastapi==0.1.0

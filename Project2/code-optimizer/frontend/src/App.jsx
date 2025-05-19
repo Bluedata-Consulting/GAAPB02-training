@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
-import { createSession, cloneRepo, getFile, optimise } from "./api";
+import { createSession, cloneRepo, getFile, optimise, checkConnection } from "./api";
+
 
 export default function App() {
   const [repoURL, setRepoURL] = useState("");
@@ -9,9 +10,21 @@ export default function App() {
   const [optimised, setOptimised] = useState("");
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
+  const [connectionOk, setConnectionOk] = useState(true);
 
   useEffect(() => {
-    createSession();
+    // Check backend connection on startup
+    async function checkBackend() {
+      const isConnected = await checkConnection();
+      setConnectionOk(isConnected);
+      
+      if (isConnected) {
+        // Create session if connected
+        await createSession();
+      }
+    }
+    
+    checkBackend();
   }, []);
 
   const handleClone = async () => {
@@ -44,6 +57,21 @@ export default function App() {
       setBusy(false);
     }
   };
+  if (!connectionOk) {
+    return (
+      <div style={{ padding: 32, fontFamily: "sans-serif", color: "red" }}>
+        <h2>Connection Error</h2>
+        <p>Cannot connect to the backend service. Please try again later.</p>
+        <button onClick={async () => {
+          const isConnected = await checkConnection();
+          setConnectionOk(isConnected);
+        }}>
+          Retry Connection
+        </button>
+      </div>
+    );
+  }
+
 
   return (
     <div style={{ padding: 32, fontFamily: "sans-serif" }}>
