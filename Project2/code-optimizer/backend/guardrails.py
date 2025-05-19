@@ -31,7 +31,7 @@ def input_guardrail(code: str) -> (bool, str):
     )
 
     result: _InputGuardrailResp = chain.invoke({"code": code})
-    print(result)
+    #print(result)
     return result['code'], result['condition']
 
 
