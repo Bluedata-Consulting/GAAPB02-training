@@ -60,15 +60,16 @@ Export the standard variables:
 export NAME=anshu
 export RG=Tredence-Batch2
 export VAULT=vault$NAME
+export VAULT_NAME=$VAULT
 export SP=sp$NAME
 export ACR=codeacr$NAME
 export ACI=aci$NAME
 export IMG=img$NAME
 
 # Your Azure/OpenAI/Langfuse creds
-export AOAIKEY=…
-export LFPUBLIC=…
-export LFSECRET=…
+export AOAIKEY=xxxxxxxxxxxxxxxxxxxxx
+export LFPUBLIC=xxxxxxxxxxxxxxxxxxxxx
+export LFSECRET=xxxxxxxxxxxxxxxxxxxxxxxxxx
 export AZURE_DEPLOYMENT=telcogpt2
 export LANGFUSE_HOST=https://cloud.langfuse.com
 export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
@@ -115,9 +116,9 @@ az ad sp create-for-rbac -n $SP \
 *Extract `clientId`, `clientSecret`, `tenantId` from `sp.json` into env vars:*
 
 ```bash
-export AZURE_CLIENT_ID=…
-export AZURE_CLIENT_SECRET=…
-export AZURE_TENANT_ID=…
+export AZURE_CLIENT_ID=xxxxxxxxxxxxx
+export AZURE_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxx
+export AZURE_TENANT_ID=xxxxxxxxxxxxxxxxxxxxx
 ```
 
 ### 4. Create & Login to Azure Container Registry
@@ -168,6 +169,7 @@ az acr login -n $ACR
 2. **Install** deps (first time):
 
    ```bash
+   # delete the directory node_modules
    npm install
    ```
 3. **Start** Vite dev server:
@@ -177,7 +179,7 @@ az acr login -n $ACR
    ```
 4. **Browse** **[http://localhost:5173](http://localhost:5173)**
 
-   * **Paste** the demo repo URL → **Clone**
+   * **Paste** the demo repo URL → https://github.com/Bluedata-Consulting/Talent_assessment_assistant-demo **Clone**
    * **Select** a file → **Load**
    * **Click** **Optimise** → optimized code appears
 
@@ -189,10 +191,10 @@ az acr login -n $ACR
 
 ```bash
 # build
-docker build -f backend.Dockerfile -t $IMG-backend:latest .
+sudo docker build -f backend.Dockerfile -t $IMG-backend:latest .
 
 # run
-docker run -d -p 8000:8000 \
+sudo docker run -d -p 8000:8000 \
   -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
   -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
   -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
@@ -214,15 +216,30 @@ docker run -d -p 8000:8000 \
 
 ```bash
 # build (pointing at your local backend)
-docker build -f frontend.Dockerfile \
-  --build-arg BACKEND_HOST=host.docker.internal \
+sudo docker build -f frontend.Dockerfile \
+  --build-arg BACKEND_HOST=localhost \
   -t $IMG-frontend:latest .
 
 # run
-docker run -d -p 8080:80 \
+sudo docker run -d -p 8080:80 \
   --add-host=host.docker.internal:host-gateway \
   --name codeopt-frontend \
+  -e BACKEND_URL=http://host.docker.internal:8000 \
   $IMG-frontend:latest
+
+#check docker images
+sudo docker images -a
+
+# delete all docker images
+sudo docker rmi $(sudo docker images -aq)
+
+# check all containers
+sudo docker ps -a
+
+# delete all containers
+sudo docker rm $(sudo docker ps -aq)
+
+
 ```
 
 **Test**: open **[http://localhost:8080](http://localhost:8080)** and repeat clone/load/optimise.
@@ -231,9 +248,41 @@ docker run -d -p 8080:80 \
 
 ## ☁️ 4. Azure Container Instances (Single ACI Group)
 
+0. **Push** docker images to ACR:
+
+   ```bash
+   # login to ACR
+   ACR_USERNAME=$(az acr credential show --name $ACR --query "username" -o tsv)
+   ACR_PASSWORD=$(az acr credential show --name $ACR --query "passwords[0].value" -o tsv)
+
+   sudo az acr login -n $ACR -u $ACR_USERNAME -p $ACR_PASSWORD
+
+   # push backend image to ACR
+
+   sudo docker tag $IMG-backend:latest $ACR.azurecr.io/$IMG-backend:latest
+   sudo docker push $ACR.azurecr.io/$IMG-backend:latest
+
+
+   # push frontend image to ACR
+
+   sudo docker tag $IMG-frontend:latest $ACR.azurecr.io/$IMG-frontend:latest
+   sudo docker push $ACR.azurecr.io/$IMG-frontend:latest
+
+   # list all the docker images in ACR
+   az acr repository list -n $ACR -o table
+   ```
+
 1. **Regenerate** ACI YAML if needed:
 
    ```bash
+
+   export SESSION_SECRET=$(openssl rand -base64 32)
+   export RUNNING_IN_AZURE=True
+   export COOKIE_SECURE=True
+   export TAG=latest
+   export DNS_LABEL=codeopt-app
+   export LOCATION=$REGION
+   export ALLOWED_ORIGINS=http://$DNS_LABEL.$LOCALTION.azurecontainer.io,http://localhost
    python generate-aci-config.py
    ```
 2. **Deploy** both containers in one group:
