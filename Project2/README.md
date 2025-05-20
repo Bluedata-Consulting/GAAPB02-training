@@ -1,20 +1,17 @@
-# Code Optimizer Assistant — FastAPI + React
+# Code Optimization Assistant
 
-A two‑tier web application that
+## 📝 Overview
 
-1. Clones any public GitHub repo
-2. Lets you view / edit a file, add plain‑English feedback
-3. Runs a composite LangChain pipeline—`input_guardrail ➜ optimizer ➜ output_guardrail`—on Azure GPT‑4o
-4. Tracks prompts & traces in **Langfuse**
-5. Persists no secrets in code: all credentials live in **Azure Key Vault** and are injected at runtime
+A two-tier app:
+
+* **Backend**: FastAPI that clones GitHub repos, enforces guardrails, calls Azure OpenAI + Langfuse.
+* **Frontend**: React + Vite SPA that drives the UX, talking to `/api` endpoints.
+
+By always routing the SPA’s `/api` calls to the same origin—via Vite proxy locally, nginx in Docker, or Azure Front Door in ACI—we avoid CORS and SameSite cookie issues.
 
 ---
 
-<img src=".\figures\Project21.png" alt="Project 2" width="900"/>
-<img src=".\figures\Project22.png" alt="Project 2" width="900"/>
-
-
-\## 📂 Project layout
+## 📂 Folder Structure
 
 ```
 code-optimizer/
@@ -25,43 +22,41 @@ code-optimizer/
 │   ├── guardrails.py
 │   ├── optimizers.py
 │   ├── utils.py
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── backend.Dockerfile
 └── frontend/
     ├── package.json
+    ├── frontend.Dockerfile
+    ├── vite.config.js
     └── src/
         ├── api.js
         └── App.jsx
 ```
 
-> **Quick scaffold** (run in an empty directory):
+---
 
-```bash
-mkdir -p code-optimizer/backend code-optimizer/frontend/src
+## 🚀 Approach
 
+1. **Same-origin `/api`**: SPA always calls `/api/...`.
+2. **Local dev**: Vite proxies `/api` → `localhost:8000`.
+3. **Docker**: nginx in front-end container proxies `/api` → backend container.
+4. **ACI + Front Door**: Front Door routes `/` → front-end ACI, `/api/*` → backend ACI.
 
-# 1) back‑end tree  ───────────────────────────────────────────────
-mkdir -p code-optimizer/backend && \
-touch code-optimizer/backend/{main.py,prompt_setup.py,kvsecrets.py,guardrails.py,optimizers.py,utils.py,requirements.txt,backend.Dockerfile}
-
-# 2) front‑end tree  ──────────────────────────────────────────────
-mkdir -p code-optimizer/frontend/src && \
-touch code-optimizer/frontend/{package.json,frontend.Dockerfile} code-optimizer/frontend/src/{api.js,App.jsx}
-
-```
+Cookies (`SameSite=Lax`) flow seamlessly because the browser never sees a cross-site request.
 
 ---
 
-\## 🚀 Resource provisioning (once)
+## 🔧 Prerequisites & Environment Variables
 
-\### 0 Login to Azure & create variables
+Before you begin, make sure you have:
+
+* Azure CLI logged in (`az login`)
+* Docker (for local container mode)
+* Node.js & npm (for local React)
+
+Export the standard variables:
 
 ```bash
-az login
-```
-
-```bash
-
-# personalise
 export NAME=anshu
 export RG=Tredence-Batch2
 export VAULT=vault$NAME
@@ -70,38 +65,45 @@ export ACR=codeacr$NAME
 export ACI=aci$NAME
 export IMG=img$NAME
 
-# (OPTIONAL) if you already have the keys:
-export AOAIKEY=xxxxxxxxxxxxxxxx
-export LFPUBLIC=pxxxxxxxxxxx
-export LFSECRET=sxxxxxxxxxxxxxxxxxxxx
+# Your Azure/OpenAI/Langfuse creds
+export AOAIKEY=…
+export LFPUBLIC=…
+export LFSECRET=…
 export AZURE_DEPLOYMENT=telcogpt2
 export LANGFUSE_HOST=https://cloud.langfuse.com
 export AZURE_OPENAI_ENDPOINT=https://swedencentral.api.cognitive.microsoft.com/
 export REGION=centralindia
+
+# Cookie/session settings
 export SESSION_SECRET=$(openssl rand -base64 32)
 export RUNNING_IN_AZURE=False
 export COOKIE_SECURE=False
 
+# For local React & Docker mode
+export VITE_API_URL=http://localhost:8000
 ```
-
 
 ---
 
-\## 1 Key Vault + secrets
+## 🔐 Resource Provisioning
+
+These commands set up Key Vault, Service Principal, ACR.
+
+### 1. Create Azure Key Vault
 
 ```bash
 az keyvault create -g $RG -n $VAULT --enable-rbac-authorization true
-
-# place Langfuse keys now so later code can start up immediately
-az keyvault secret set -n LANGFUSE-PUBLIC-KEY --vault-name $VAULT --value $LFPUBLIC
-az keyvault secret set -n LANGFUSE-SECRET-KEY --vault-name $VAULT --value $LFSECRET
-az keyvault secret set -n AZURE-OPENAI-API-KEY --vault-name $VAULT --value $AOAIKEY
-
 ```
 
----
+### 2. Add Secrets to Key Vault
 
-\## 2 Service principal (Key Vault → Secrets User)
+```bash
+az keyvault secret set --vault-name $VAULT -n LANGFUSE-PUBLIC-KEY  --value $LFPUBLIC  
+az keyvault secret set --vault-name $VAULT -n LANGFUSE-SECRET-KEY  --value $LFSECRET  
+az keyvault secret set --vault-name $VAULT -n AZURE-OPENAI-API-KEY --value $AOAIKEY  
+```
+
+### 3. Create Service Principal for Key Vault Access
 
 ```bash
 az ad sp create-for-rbac -n $SP \
@@ -110,201 +112,169 @@ az ad sp create-for-rbac -n $SP \
   --sdk-auth > sp.json
 ```
 
-Above command exports a json file sp.json. The JSON looks like:
-
-```json
-{
-  "clientId": "...",
-  "clientSecret": "...",
-  "tenantId": "...",
-  "subscriptionId": "..."
-}
-```
-
-Copy the three fields—we’ll map them to environment variables.
-
-
----
-\## 3 Test the applicaiton locally
+*Extract `clientId`, `clientSecret`, `tenantId` from `sp.json` into env vars:*
 
 ```bash
-#export following env variables
-export VAULT_NAME=$VAULT
-export AZURE_CLIENT_SECRET=xxxxxxxxxxxxxxx
-export AZURE_CLIENT_ID=xxxxxxxxxxxxxx
-export AZURE_TENANT_ID=xxxxxxxxxxxxxx
-# Cookie signing secret
-#export SESSION_SECRET=$(openssl rand -hex 16)
-# Local React app points to the backend
-export VITE_API_URL=http://localhost:8000
+export AZURE_CLIENT_ID=…
+export AZURE_CLIENT_SECRET=…
+export AZURE_TENANT_ID=…
 ```
 
-#### Backend: FastAPI ServerLaunch the backend service
-```bash
-# Launch the backend service locally
-cd Project2/code-optimizer/backend
-uvicorn main:app --reload --port 8000
-
-```
-
-# testing the backend
-
-1. Navigate to http:127.0.0.1:8000/docs
-2. this launches swagger test interface to test each API, fill the input argument accordingly to test each service
-
-Docs:
-
-
-#### Frontend: React-Vite dev server
-
-Open **another terminal** (leave the backend running):
+### 4. Create & Login to Azure Container Registry
 
 ```bash
-cd Project2/code-optimizer/frontend
-sudo apt install nodejs npm  # enter the user VM password (Cloud.....)
-# delete the folder frontend/node_modules
-npm install          # first time only
-npm run dev          # Vite dev server → http://localhost:5173
-```
-demo repo for test : https://github.com/anshupandey/mlops-ey25
-Vite prints something like:
+az acr create -g $RG -n $ACR --sku Basic  
+az acr update -n $ACR --admin-enabled true  
 
-```
-> Local: http://localhost:5173/
+# login to ACR
+az acr login -n $ACR
 ```
 
 ---
 
+## 🧪 1. Local Python Backend
 
-Navigate to **[http://localhost:5173](http://localhost:5173)** in a browser:
+1. **Go** into the backend folder:
 
-1. Paste a public GitHub repo URL → **Clone** 
-2. Choose a file → **Load**
-3. Click **Optimise** to hit the backend at `http://localhost:8000`.
+   ```bash
+   cd code-optimizer/backend
+   ```
+2. **Run** the FastAPI server:
 
-⚠️  If you get CORS errors in the browser console, verify:
+   ```bash
+   uvicorn main:app --reload --port 8000
+   ```
+3. **Test** via Swagger UI:
 
-* Backend is reachable at the URL in `VITE_API_URL`.
-* React dev server and backend run on different ports (5173 vs 8000).
+   * Browse **[http://localhost:8000/docs](http://localhost:8000/docs)**
+   * **POST** `/session` → **200 OK**, look for `Set-Cookie`
+   * **POST** `/clone` with JSON
+
+     ```json
+     { "repo_url": "https://github.com/Bluedata-Consulting/Talent_assessment_assistant-demo" }
+     ```
+   * **GET** `/file?relative_path=<one-of-the-files>`
+   * **POST** `/optimise` with your code + optional feedback
 
 ---
 
-### Quick sanity checks
+## 🖥️ 2. Local React Frontend
 
-| URL                                             | Expect                       |
-| ----------------------------------------------- | ---------------------------- |
-| `http://localhost:8000/docs`                    | FastAPI Swagger UI           |
-| `curl -X POST http://localhost:8000/session`    | 200 with `Set-Cookie` header |
-| `npm run test` (if you saved `backend_test.py`) | All ✅                        |
+1. **Open** a new terminal, go to:
 
-You now have the **backend and frontend running locally** with hot-reload; edit any Python or React file and the browser refreshes automatically.
+   ```bash
+   cd code-optimizer/frontend
+   ```
+2. **Install** deps (first time):
 
+   ```bash
+   npm install
+   ```
+3. **Start** Vite dev server:
+
+   ```bash
+   npm run dev
+   ```
+4. **Browse** **[http://localhost:5173](http://localhost:5173)**
+
+   * **Paste** the demo repo URL → **Clone**
+   * **Select** a file → **Load**
+   * **Click** **Optimise** → optimized code appears
 
 ---
 
-\## 4 Container Registry
+## 🐳 3. Local Docker (Backend + Frontend)
+
+### Backend Container
 
 ```bash
-az acr create -g $RG -n $ACR --sku Basic
-az acr update -n $ACR --admin-enabled true
-sudo az acr login -n $ACR -u $(az acr credential show -n $ACR --query username -o tsv) \
-  -p $(az acr credential show -n $ACR --query passwords[0].value -o tsv)
+# build
+docker build -f backend.Dockerfile -t $IMG-backend:latest .
 
-
-# if asked for password for user, enter the VM password
+# run
+docker run -d -p 8000:8000 \
+  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+  -e VAULT_NAME=$VAULT \
+  -e SESSION_SECRET=$SESSION_SECRET \
+  -e AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT \
+  -e RUNNING_IN_AZURE=False \
+  -e LANGFUSE_HOST=$LANGFUSE_HOST \
+  -e AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
+  -e COOKIE_SECURE=false \
+  -e ALLOWED_ORIGINS=http://localhost:8080 \
+  --name codeopt-backend \
+  $IMG-backend:latest
 ```
 
----
+**Verify**: Swagger at **[http://localhost:8000/docs](http://localhost:8000/docs)**
 
-\## 5 Docker build & push
+### Frontend Container
 
 ```bash
-# BACKEND: build the docker image
-# make sure to run this command from code-optimizer directory
-sudo docker build -f backend.Dockerfile \
-  -t $IMG-backend:latest .
-
-# optional: Run the docker containerr locally
-sudo docker run -d -p 8000:8000 -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET -e VAULT_NAME=$VAULT_NAME -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID -e AZURE_TENANT_ID=$AZURE_TENANT_ID -e SESSION_SECRET=$(openssl rand -hex 16) -e AZURE_DEPLOYMENT=$AZURE_DEPLOYMENT -e RUNNING_IN_AZURE=$RUNNING_IN_AZURE -e LANGFUSE_HOST=$LANGFUSE_HOST -e AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT -e COOKIE_SECURE=false -e ALLOWED_ORIGINS=http://localhost:8080 $IMG-backend:latest
-
-# Test the backend using swagger by navigating to http:!27.0.0.1:8000/docs
-
-sudo docker tag $IMG-backend:latest $ACR.azurecr.io/$IMG-backend:latest
-sudo docker push $ACR.azurecr.io/$IMG-backend:latest
-
-# FRONTEND
-# make sure to navigate to code-optimizer folder 
-sudo docker build -f frontend.Dockerfile \
-  --build-arg BACKEND_HOST=localhost \
+# build (pointing at your local backend)
+docker build -f frontend.Dockerfile \
+  --build-arg BACKEND_HOST=host.docker.internal \
   -t $IMG-frontend:latest .
 
-
-sudo docker run -d -p 8080:80 --add-host=host.docker.internal:host-gateway \
--e BACKEND_URL=http://host.docker.internal:8000 \
- $IMG-frontend:latest
-
-
-sudo docker tag $IMG-frontend:latest $ACR.azurecr.io/$IMG-frontend:latest
-sudo docker push $ACR.azurecr.io/$IMG-frontend:latest
-
+# run
+docker run -d -p 8080:80 \
+  --add-host=host.docker.internal:host-gateway \
+  --name codeopt-frontend \
+  $IMG-frontend:latest
 ```
 
+**Test**: open **[http://localhost:8080](http://localhost:8080)** and repeat clone/load/optimise.
 
+---
+
+## ☁️ 4. Azure Container Instances (Single ACI Group)
+
+1. **Regenerate** ACI YAML if needed:
+
+   ```bash
+   python generate-aci-config.py
+   ```
+2. **Deploy** both containers in one group:
+
+   ```bash
+   az container create -g $RG --file container-group.yaml
+   ```
+3. **Get** the public FQDN:
+
+   ```bash
+   az container show -g $RG -n ${ACI}-group \
+     --query "ipAddress.fqdn" -o tsv
+   ```
+4. **Backend Test**:
+
+   * Browse **http\://<ACI-FQDN>:8000/docs** → `/session`, `/clone`, `/optimise`
+5. **Frontend Test**:
+
+   * Browse **http\://<ACI-FQDN>** → clone/load/optimise against the ACI backend
+
+---
+
+## 🧹 Cleanup & Teardown
+
+When you’re done, delete all Azure resources to avoid charges:
 
 ```bash
-
-ACR_USERNAME=$(az acr credential show --name $ACR$ --query "username" -o tsv)
-ACR_PASSWORD=$(az acr credential show --name $ACR$ --query "passwords[0].value" -o tsv)
-export SESSION_SECRET=$(openssl rand -base64 32)
-export RUNNING_IN_AZURE=True
-export COOKIE_SECURE=True
-export TAG=latest
-export DNS_LABEL=codeopt-app
-export LOCATION=centralindia
-export ALLOWED_ORIGINS=http://$DNS_LABEL.$LOCATION.azurecontainer.io,http://localhost
-
-# Generate aci config file: contianer-group.yaml
-# navigate to the project2 directory
-python generate-aci-config.py
-
-az container create -g $RG --file container-group.yaml
-
-# check list of containers
-az container list -g $RG -o table
-
-
-# check FQDN and ensure it is same as BACKEND_FQDN
-az container show -g $RG -n ${ACI}-group \
-  --query "ipAddress.{fqdn:fqdn,ip:ip,ports:ports}" -o table
-
-
-```
-# ------------------------------------------------------------------
-# 7.  Delete and Clean the deployments 
-# ------------------------------------------------------------------
-
-# delete the container instance
+# Remove ACI group
 az container delete -g $RG -n ${ACI}-group --yes
 
-# delete the container registry
+# Delete ACR
 az acr delete -g $RG -n $ACR --yes
 
-# delete the key vault
-az keyvault delete --name $VAULT_NAME -g $RG
+# Delete Key Vault
+az keyvault delete -n $VAULT -g $RG
+
+# (Optional) Delete Service Principal
+az ad sp delete --id $(az ad sp list --display-name $SP --query "[0].id" -o tsv)
+
+# (Optional) Delete Resource Group if dedicated
+# az group delete -g $RG --yes --no-wait
+```
 
 ---
-
-\## 🛠️ Troubleshooting
-
-| Symptom                         | Fix                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| **KeyVault “Forbidden”**        | Confirm the service‑principal has *Key Vault Secrets User* role; check typo in env‑vars.   |
-| **Langfuse prompts duplicated** | They are created idempotently; duplicates mean you used a different project key.           |
-| **CORS blocked in browser**     | Verify `VITE_API_URL` in frontend env and that Nginx adds `Access-Control-Allow-Origin *`. |
-| **LLM “quota exceeded”**        | You hit your Azure OpenAI limit—raise it or lower usage.                                   |
-
----
-
-\## 📄 MIT License
-
-This project remains MIT‑licensed. See `LICENSE`.
