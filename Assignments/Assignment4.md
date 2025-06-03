@@ -25,6 +25,7 @@ In this assignment, you will build a **lighter-weight** agentic RAG pipeline usi
 
 > **“Build a simplified Agentic RAG system using LangGraph that, for any user question about software engineering best practices, retrieves up to 5 relevant KB snippets, generates an initial LLM answer, self‐critiques it, and—only when necessary—retrieves one extra snippet to refine the answer, finally returning a citation-backed response.”**
 
+Dataset: https://github.com/Bluedata-Consulting/GAAPB02-training/blob/main/Assignments/self_critique_loop_dataset.json 
 #### 2.1. Detailed Tasks
 
 1. **Preprocessing & Indexing**
