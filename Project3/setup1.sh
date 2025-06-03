@@ -7,10 +7,11 @@ LOCATION=eastus2
 AZURE_OPENAI_RESOURCE="$NAME-openai"
 AZURE_OPENAI_MODEL="text-embedding-ada-002"
 KV_NAME="$NAME-kv"
-ACI_NAME="$NAME-weaviate"
-IDENTITY_NAME="$NAME-weaviate-identity"
-ACR_NAME="$NAME-acr"
-CONTAINER_IMAGE="$ACR_NAME.azurecr.io/weaviate-custom"
+ACR_NAME="$NAME"
+APP_SERVICE_PLAN="$NAME-asp"
+WEB_APP_NAME="$NAME-weaviate-app"
+STORAGE_ACCOUNT="$NAME$(date +%s)st"  # Short name for storage
+
 
 # Create Azure OpenAI resource
 echo "Creating Azure OpenAI resource..."
@@ -32,11 +33,36 @@ az cognitiveservices account deployment create \
   --model-version 2 \
   --model-format OpenAI \
   --sku-name Standard \
-  --scale-type Standard
+  --sku Standard \
+  --sku-capacity 30
 
 # Get OpenAI endpoint and key
 ENDPOINT=$(az cognitiveservices account show --name $AZURE_OPENAI_RESOURCE --resource-group $RG --query "properties.endpoint" -o tsv)
 API_KEY=$(az cognitiveservices account keys list --name $AZURE_OPENAI_RESOURCE --resource-group $RG --query key1 -o tsv)
+
+# 2. Create Storage for persistence
+echo "Creating Storage Account..."
+az storage account create \
+  --name $STORAGE_ACCOUNT \
+  --resource-group $RG \
+  --location $LOCATION \
+  --sku Standard_LRS
+
+STORAGE_KEY=$(az storage account keys list --resource-group $RG --account-name $STORAGE_ACCOUNT --query '[0].value' -o tsv)
+
+az storage share create \
+  --account-name $STORAGE_ACCOUNT \
+  --account-key $STORAGE_KEY \
+  --name "weaviatedata"
+
+# 3. Create App Service Plan
+echo "Creating App Service Plan..."
+az appservice plan create \
+  --name $APP_SERVICE_PLAN \
+  --resource-group $RG \
+  --location $LOCATION \
+  --is-linux \
+  --sku B2
 
 # Create Key Vault
 echo "Creating Key Vault..."
@@ -47,57 +73,87 @@ az keyvault secret set --vault-name $KV_NAME --name "AZURE-OPENAI-API-KEY" --val
 # Create ACR
 echo "Creating Azure Container Registry (ACR)..."
 az acr create --resource-group $RG --name $ACR_NAME --sku Basic --location $LOCATION
+az acr update -n $ACR_NAME --admin-enabled true
 ACR_USERNAME=$(az acr credential show --name $ACR_NAME --resource-group $RG --query "username" -o tsv)
 ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --resource-group $RG --query "passwords[0].value" -o tsv)
 echo "$ACR_PASSWORD" | docker login "$ACR_NAME.azurecr.io" --username "$ACR_USERNAME" --password-stdin
 
 
-# Create managed identity for ACI
-echo "Creating managed identity..."
-az identity create --name $IDENTITY_NAME --resource-group $RG --location $LOCATION
-IDENTITY_PRINCIPAL_ID=$(az identity show --name $IDENTITY_NAME --resource-group $RG --query 'principalId' -o tsv)
-IDENTITY_ID=$(az identity show --name $IDENTITY_NAME --resource-group $RG --query 'id' -o tsv)
+# 4. Create docker-compose.yml
+echo "Creating Docker Compose file..."
+cat > docker-compose.yml << EOF
+version: '3.8'
+services:
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.30.6
+    ports:
+      - "8080:8080"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai,generative-openai'
+      CLUSTER_HOSTNAME: 'node1'
+    restart: on-failure:0
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8080'
+      - --scheme
+      - http
 
-# Set Key Vault policy to allow identity to access secrets
-az keyvault set-policy --name $KV_NAME --object-id $IDENTITY_PRINCIPAL_ID --secret-permissions get list
-
-# Create Dockerfile
-echo "Creating Dockerfile..."
-cat <<EOF > Dockerfile
-FROM weaviate/weaviate:latest
-RUN apt-get update && apt-get install -y curl apt-transport-https lsb-release gnupg && \
-    curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+volumes:
+  weaviate_data:
 EOF
 
-# Create entrypoint.sh
-echo "Creating entrypoint.sh..."
-cat <<'EOF' > entrypoint.sh
-#!/bin/bash
-export AZURE_OPENAI_API_KEY=$(az keyvault secret show --name AZURE-OPENAI-API-KEY --vault-name $KV_NAME --query value -o tsv)
-export AZURE_OPENAI_ENDPOINT=$(az keyvault secret show --name AZURE-OPENAI-ENDPOINT --vault-name $KV_NAME --query value -o tsv)
-exec /weaviate
-EOF
-
-# Build Docker image
-echo "Building Docker image..."
-docker build -t $CONTAINER_IMAGE .
-
-# Push Docker image to ACR
-echo "Pushing Docker image to ACR..."
-docker push $CONTAINER_IMAGE
-
-# Deploy ACI
-echo "Deploying ACI with Weaviate..."
-az container create \
+# 5. Create Web App
+echo "Creating Web App..."
+az webapp create \
   --resource-group $RG \
-  --name $ACI_NAME \
-  --image $CONTAINER_IMAGE \
-  --location $LOCATION \
-  --assign-identity $IDENTITY_ID \
-  --cpu 2 --memory 4 \
-  --ports 8080 80 \
-  --restart-policy Always \
-  --environment-variables KV_NAME=$KV_NAME
+  --plan $APP_SERVICE_PLAN \
+  --name $WEB_APP_NAME \
+  --multicontainer-config-type compose \
+  --multicontainer-config-file docker-compose.yml
+
+# 6. Configure environment and storage
+echo "Configuring Web App..."
+az webapp config appsettings set \
+  --resource-group $RG \
+  --name $WEB_APP_NAME \
+  --settings \
+    AZURE_APIKEY="$API_KEY" \
+    WEBSITES_PORT=8080 \
+    WEBSITES_CONTAINER_START_TIME_LIMIT=600
+
+az webapp config storage-account add \
+  --resource-group $RG \
+  --name $WEB_APP_NAME \
+  --custom-id weaviate_data \
+  --storage-type AzureFiles \
+  --share-name "weaviatedata" \
+  --account-name $STORAGE_ACCOUNT \
+  --access-key $STORAGE_KEY \
+  --mount-path /var/lib/weaviate
+
+# 7. Start and test
+echo "Starting Web App..."
+az webapp start --resource-group $RG --name $WEB_APP_NAME
+
+echo "🎉 Deployment complete!"
+echo ""
+echo "📋 IMPORTANT DETAILS:"
+echo "Web App URL: https://$WEB_APP_NAME.azurewebsites.net"
+echo "Health Check: https://$WEB_APP_NAME.azurewebsites.net/v1/.well-known/ready"
+echo "OpenAI Endpoint: $ENDPOINT"
+echo "OpenAI API Key: $API_KEY"
+echo ""
+echo "⏰ Wait 5-10 minutes for deployment to complete, then test the health check URL"
+
+# Test connectivity (optional)
+echo "Testing connectivity in 60 seconds..."
+sleep 60
+curl -s "https://$WEB_APP_NAME.azurewebsites.net/v1/.well-known/ready" && echo "✅ Weaviate is ready!" || echo "⏳ Still starting up..."
