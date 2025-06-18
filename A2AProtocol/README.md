@@ -74,7 +74,7 @@ pip install -r a2a-sdk langchain-google-genai langgraph langchain-openai pydanti
    If you're using a Google Gemini model (gemini-pro, etc.):
    echo "GOOGLE_API_KEY=your_api_key_here" > .env
   
-   
+ #  sample= AIzaSyDDGTMmnpQJWzbLpWpXd4Jl3W8cGHjfPQ
    If you're using OpenAI or any compatible API (e.g., local LLM via Ollama, LM Studio, etc.):
 
    echo "API_KEY=your_api_key_here" > .env  (not neccessary if have no api key)
